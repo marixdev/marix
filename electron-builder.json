@@ -81,7 +81,7 @@
   },
   "publish": {
     "provider": "github",
-    "owner": "datvuong166",
+    "owner": "marixdev",
     "repo": "marix"
   }
 }
