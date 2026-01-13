@@ -599,6 +599,72 @@ export interface Translations {
   updateAvailable: string;
   newVersionAvailable: string;
   upToDate: string;
+  releaseNotes: string;
+  
+  // 2FA Authenticator
+  twoFactorAuth: string;
+  totpDescription: string;
+  noTotpEntries: string;
+  addTotpEntry: string;
+  addFirstEntry: string;
+  addNewEntry: string;
+  accountName: string;
+  accountNamePlaceholder: string;
+  secretKey: string;
+  secretPlaceholder: string;
+  bulkAdd: string;
+  onePerLine: string;
+  addAll: string;
+  invalidSecret: string;
+  invalidKey: string;
+  clickToEdit: string;
+  securityNote: string;
+  totpSecurityInfo: string;
+  add: string;
+  
+  // Port Forwarding
+  portForwarding: string;
+  portForwardingDescription: string;
+  noPortForwards: string;
+  addPortForwardDesc: string;
+  addFirstForward: string;
+  addPortForward: string;
+  editPortForward: string;
+  localForward: string;
+  remoteForward: string;
+  dynamicForward: string;
+  sshServer: string;
+  localHost: string;
+  localPort: string;
+  remoteHost: string;
+  remotePort: string;
+  forwardNamePlaceholder: string;
+  
+  // Changelog
+  changelog: string;
+  changelogDesc: string;
+  loadChangelog: string;
+  
+  // About Page (additional fields)
+  security: string;
+  techStack: string;
+  zeroKnowledge: string;
+  localStorage: string;
+  argon2Encryption: string;
+  openSource: string;
+  available: string;
+  
+  localForwardDesc: string;
+  remoteForwardDesc: string;
+  dynamicForwardDesc: string;
+  portForwardingHelp: string;
+  localForwardHelp: string;
+  remoteForwardHelp: string;
+  dynamicForwardHelp: string;
+  serverNotFound: string;
+  stopBeforeEdit: string;
+  start: string;
+  stop: string;
 }
 
 interface LanguageContextType {
@@ -627,9 +693,27 @@ import ru from '../locales/ru.json';
 import fil from '../locales/fil.json';
 import pt from '../locales/pt.json';
 
+// Use type assertion to avoid strict type checking for translations
+// This allows partial translations in non-English locales
 const translationsMap: Record<Language, Translations> = {
-  en, vi, id, zh, ko, ja, fr, de, es, th, ms, ru, fil, pt
+  en: en as Translations,
+  vi: { ...en, ...vi } as Translations,
+  id: { ...en, ...id } as Translations,
+  zh: { ...en, ...zh } as Translations,
+  ko: { ...en, ...ko } as Translations,
+  ja: { ...en, ...ja } as Translations,
+  fr: { ...en, ...fr } as Translations,
+  de: { ...en, ...de } as Translations,
+  es: { ...en, ...es } as Translations,
+  th: { ...en, ...th } as Translations,
+  ms: { ...en, ...ms } as Translations,
+  ru: { ...en, ...ru } as Translations,
+  fil: { ...en, ...fil } as Translations,
+  pt: { ...en, ...pt } as Translations
 };
+
+// Import geo language service
+import { detectLanguageFromIP } from '../services/geoLanguageService';
 
 interface LanguageProviderProps {
   children: ReactNode;
@@ -638,17 +722,36 @@ interface LanguageProviderProps {
 export const LanguageProvider: React.FC<LanguageProviderProps> = ({ children }) => {
   const [language, setLanguageState] = useState<Language>('en');
 
-  // Load saved language on mount
+  // Load saved language on mount, with IP-based auto-detection for first-time users
   useEffect(() => {
     const savedLang = localStorage.getItem('app-language') as Language;
     if (savedLang && LANGUAGES.some(l => l.code === savedLang)) {
+      // User has already set a language preference
       setLanguageState(savedLang);
     } else {
-      // Try to detect browser language
-      const browserLang = navigator.language.split('-')[0] as Language;
-      if (LANGUAGES.some(l => l.code === browserLang)) {
-        setLanguageState(browserLang);
-      }
+      // First-time user: try IP-based detection first, then fallback to browser language
+      const detectLanguage = async () => {
+        try {
+          // Try IP-based detection (with caching)
+          const geoLang = await detectLanguageFromIP();
+          if (geoLang && LANGUAGES.some(l => l.code === geoLang)) {
+            setLanguageState(geoLang);
+            console.log(`[Language] Auto-detected from IP: ${geoLang}`);
+            return;
+          }
+        } catch (error) {
+          console.log('[Language] IP detection failed, using browser fallback');
+        }
+        
+        // Fallback: Try to detect browser language
+        const browserLang = navigator.language.split('-')[0] as Language;
+        if (LANGUAGES.some(l => l.code === browserLang)) {
+          setLanguageState(browserLang);
+          console.log(`[Language] Using browser language: ${browserLang}`);
+        }
+      };
+      
+      detectLanguage();
     }
   }, []);
 

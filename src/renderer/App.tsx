@@ -11,6 +11,8 @@ import LanguageSelector from './components/LanguageSelector';
 import SSHFingerprintModal from './components/SSHFingerprintModal';
 import SSHKeyManager from './components/SSHKeyManager';
 import KnownHostsPage from './components/KnownHostsPage';
+import TwoFactorPage from './components/TwoFactorPage';
+import PortForwardingPage from './components/PortForwardingPage';
 import { useTerminalContext } from './contexts/TerminalContext';
 import { useLanguage } from './contexts/LanguageContext';
 
@@ -57,7 +59,7 @@ const App: React.FC = () => {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [currentTheme, setCurrentTheme] = useState('Dracula');
   const [appTheme, setAppTheme] = useState<'dark' | 'light'>('dark');
-  const [activeMenu, setActiveMenu] = useState<'hosts' | 'settings' | 'cloudflare' | 'nettools' | 'tools' | 'sshkeys' | 'knownhosts'>('hosts');
+  const [activeMenu, setActiveMenu] = useState<'hosts' | 'settings' | 'cloudflare' | 'nettools' | 'tools' | 'sshkeys' | 'knownhosts' | 'twofactor' | 'portforward' | 'about'>('hosts');
   const [activeTag, setActiveTag] = useState<string | null>(null);  // Filter by tag
   const [tagSearch, setTagSearch] = useState('');  // Search tags
   const [tagColors, setTagColors] = useState<{ [key: string]: string }>({});  // Tag colors
@@ -127,8 +129,7 @@ const App: React.FC = () => {
   const [portListenerProtocol, setPortListenerProtocol] = useState<'all' | 'tcp' | 'udp'>('all');
   const [portListenerLastScan, setPortListenerLastScan] = useState<Date | null>(null);
   
-  // About modal state
-  const [showAboutModal, setShowAboutModal] = useState(false);
+  // Update check state
   const [updateInfo, setUpdateInfo] = useState<{
     checking: boolean;
     latestVersion?: string;
@@ -138,7 +139,8 @@ const App: React.FC = () => {
     error?: string;
     hasUpdate?: boolean;
   }>({ checking: false });
-  const APP_VERSION = '1.0.0';
+  const [showUpdateNotification, setShowUpdateNotification] = useState(false);
+  const APP_VERSION = '1.0.1';
   const APP_AUTHOR = 'Đạt Vũ (Marix)';
   const GITHUB_REPO = 'https://github.com/marixdev/marix';
   
@@ -290,8 +292,15 @@ const App: React.FC = () => {
       // Prepare backup data
       const cloudflareToken = await ipcRenderer.invoke('cloudflare:getToken');
       const sshKeys = await ipcRenderer.invoke('sshkey:exportAll');
+      
+      // Get 2FA and Port Forward data from localStorage
+      const totpEntriesStr = localStorage.getItem('totp_entries');
+      const portForwardsStr = localStorage.getItem('port_forwards');
+      const totpEntries = totpEntriesStr ? JSON.parse(totpEntriesStr) : undefined;
+      const portForwards = portForwardsStr ? JSON.parse(portForwardsStr) : undefined;
+      
       const backupData = {
-        version: '2.0',
+        version: '2.1',
         timestamp: Date.now(),
         servers: servers,
         tagColors: tagColors,
@@ -301,6 +310,8 @@ const App: React.FC = () => {
         },
         cloudflareToken: cloudflareToken || undefined,
         sshKeys: sshKeys || undefined,
+        totpEntries: totpEntries || undefined,
+        portForwards: portForwards || undefined,
       };
 
       const result = await ipcRenderer.invoke('backup:create', backupData, backupPassword, locationResult.filePath);
@@ -382,10 +393,26 @@ const App: React.FC = () => {
           sshKeyCount = importResult?.imported || 0;
         }
         
+        // Restore 2FA TOTP entries if present
+        let totpCount = 0;
+        if (result.data.totpEntries && result.data.totpEntries.length > 0) {
+          localStorage.setItem('totp_entries', JSON.stringify(result.data.totpEntries));
+          totpCount = result.data.totpEntries.length;
+        }
+        
+        // Restore Port Forwards if present
+        let portForwardCount = 0;
+        if (result.data.portForwards && result.data.portForwards.length > 0) {
+          localStorage.setItem('port_forwards', JSON.stringify(result.data.portForwards));
+          portForwardCount = result.data.portForwards.length;
+        }
+        
         const serverCount = result.data.servers?.length || 0;
-        const successMessage = sshKeyCount > 0 
-          ? `Backup restored successfully!\n${serverCount} servers, ${sshKeyCount} SSH keys imported.`
-          : `Backup restored successfully!\n${serverCount} servers imported.`;
+        let successMessage = `Backup restored successfully!\n${serverCount} servers`;
+        if (sshKeyCount > 0) successMessage += `, ${sshKeyCount} SSH keys`;
+        if (totpCount > 0) successMessage += `, ${totpCount} 2FA entries`;
+        if (portForwardCount > 0) successMessage += `, ${portForwardCount} port forwards`;
+        successMessage += ' imported.';
         
         setBackupSuccess(successMessage);
         setBackupPassword('');
@@ -481,7 +508,13 @@ const App: React.FC = () => {
     setGithubLoading(true);
     setBackupError(null);
     try {
-      const result = await ipcRenderer.invoke('github:uploadBackup', backupPassword);
+      // Get 2FA and Port Forward data from localStorage
+      const totpEntriesStr = localStorage.getItem('totp_entries');
+      const portForwardsStr = localStorage.getItem('port_forwards');
+      const totpEntries = totpEntriesStr ? JSON.parse(totpEntriesStr) : undefined;
+      const portForwards = portForwardsStr ? JSON.parse(portForwardsStr) : undefined;
+      
+      const result = await ipcRenderer.invoke('github:uploadBackup', backupPassword, totpEntries, portForwards);
       if (result.success) {
         setBackupSuccess(t('backupUploadedSuccessfully'));
         setBackupPassword('');
@@ -517,6 +550,17 @@ const App: React.FC = () => {
         if (tagColorsResult.success && tagColorsResult.tagColors) {
           setTagColors(tagColorsResult.tagColors);
         }
+        
+        // Restore 2FA entries if present
+        if (result.totpEntries && result.totpEntries.length > 0) {
+          localStorage.setItem('totp_entries', JSON.stringify(result.totpEntries));
+        }
+        
+        // Restore Port Forwards if present
+        if (result.portForwards && result.portForwards.length > 0) {
+          localStorage.setItem('port_forwards', JSON.stringify(result.portForwards));
+        }
+        
         setBackupSuccess(t('restoreSuccessWithCount').replace('{count}', result.serverCount?.toString() || '0'));
         setBackupPassword('');
         setBackupConfirmPassword('');
@@ -579,6 +623,48 @@ const App: React.FC = () => {
     loadServers();
     loadTagColors();
     loadGitHubAuth();
+    
+    // Auto-check for updates once per day
+    const checkForUpdatesAuto = async () => {
+      const LAST_CHECK_KEY = 'last_update_check';
+      const ONE_DAY = 24 * 60 * 60 * 1000;
+      
+      try {
+        const lastCheck = localStorage.getItem(LAST_CHECK_KEY);
+        const now = Date.now();
+        
+        // Only check if never checked or more than 1 day ago
+        if (!lastCheck || (now - parseInt(lastCheck)) > ONE_DAY) {
+          console.log('[App] Auto-checking for updates...');
+          const result = await ipcRenderer.invoke('app:checkForUpdates');
+          
+          if (result.success && result.latestVersion) {
+            const hasUpdate = result.latestVersion !== APP_VERSION && result.latestVersion > APP_VERSION;
+            
+            if (hasUpdate) {
+              console.log('[App] New version available:', result.latestVersion);
+              setUpdateInfo({
+                checking: false,
+                latestVersion: result.latestVersion,
+                releaseUrl: result.releaseUrl,
+                publishedAt: result.publishedAt,
+                releaseNotes: result.releaseNotes,
+                hasUpdate: true
+              });
+              setShowUpdateNotification(true);
+            }
+          }
+          
+          // Save last check time
+          localStorage.setItem(LAST_CHECK_KEY, now.toString());
+        }
+      } catch (err) {
+        console.error('[App] Auto-update check failed:', err);
+      }
+    };
+    
+    // Check after a short delay to not block startup
+    setTimeout(checkForUpdatesAuto, 3000);
   }, []);
 
   // Handle tag color change
@@ -1260,14 +1346,24 @@ const App: React.FC = () => {
           </button>
           <div className="flex items-center gap-2 px-3 border-r border-navy-700 h-full">
             <button
-              onClick={() => setShowAboutModal(true)}
-              className="flex items-center gap-2 hover:opacity-80 transition"
-              title={t('about')}
+              onClick={() => {
+                setActiveMenu('about');
+                setActiveSessionId(null);
+                setShowUpdateNotification(false);
+              }}
+              className="flex items-center gap-2 hover:opacity-80 transition relative"
+              title={showUpdateNotification ? t('updateAvailable') : t('about')}
             >
               <svg className="w-4 h-4 text-teal-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
               </svg>
               <span className="text-sm font-semibold text-white">Marix</span>
+              {showUpdateNotification && (
+                <span className="absolute -top-1 -right-1 flex h-3 w-3">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-3 w-3 bg-red-500"></span>
+                </span>
+              )}
             </button>
           </div>
         </div>
@@ -1425,6 +1521,21 @@ const App: React.FC = () => {
                 <span className="text-sm font-medium">{t('knownHosts')}</span>
               </button>
               
+              {/* Port Forwarding */}
+              <button
+                onClick={() => { setActiveMenu('portforward'); setActiveSessionId(null); }}
+                className={`w-full px-3 py-2.5 rounded-lg flex items-center gap-3 mb-1 transition ${
+                  activeMenu === 'portforward' && !activeSessionId
+                    ? 'bg-cyan-600 !text-white'
+                    : appTheme === 'light' ? 'text-gray-600 hover:text-gray-900 hover:bg-gray-100' : 'text-gray-400 hover:text-white hover:bg-navy-700'
+                }`}
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+                </svg>
+                <span className="text-sm font-medium">{t('portForwarding') || 'Port Forward'}</span>
+              </button>
+              
               {/* Tools */}
               <button
                 onClick={() => { setActiveMenu('tools'); setActiveSessionId(null); }}
@@ -1469,6 +1580,21 @@ const App: React.FC = () => {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z" />
                 </svg>
                 <span className="text-sm font-medium">Cloudflare</span>
+              </button>
+              
+              {/* 2FA Authenticator */}
+              <button
+                onClick={() => { setActiveMenu('twofactor'); setActiveSessionId(null); }}
+                className={`w-full px-3 py-2.5 rounded-lg flex items-center gap-3 mb-1 transition ${
+                  activeMenu === 'twofactor' && !activeSessionId
+                    ? 'bg-purple-600 !text-white'
+                    : appTheme === 'light' ? 'text-gray-600 hover:text-gray-900 hover:bg-gray-100' : 'text-gray-400 hover:text-white hover:bg-navy-700'
+                }`}
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                </svg>
+                <span className="text-sm font-medium">{t('twoFactorAuth') || '2FA'}</span>
               </button>
             </div>
           </div>
@@ -2463,7 +2589,7 @@ const App: React.FC = () => {
                         onClick={() => setToolsSelectedTool(tool.id)}
                         className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left transition ${
                           toolsSelectedTool === tool.id
-                            ? 'bg-green-600 text-white'
+                            ? 'bg-green-600 !text-white'
                             : appTheme === 'light'
                               ? 'text-gray-700 hover:bg-gray-100'
                               : 'text-gray-300 hover:bg-navy-700'
@@ -2550,7 +2676,7 @@ const App: React.FC = () => {
                                   }}
                                   className={`px-3 py-1.5 rounded-full text-xs font-medium transition ${
                                     smtpPort === p.port
-                                      ? 'bg-green-600 text-white'
+                                      ? 'bg-green-600 !text-white'
                                       : appTheme === 'light'
                                         ? 'bg-gray-100 text-gray-700 hover:bg-gray-200 border border-gray-200'
                                         : 'bg-navy-900 text-gray-300 hover:bg-navy-700 border border-navy-600'
@@ -2788,7 +2914,7 @@ const App: React.FC = () => {
                                   onClick={() => setProxyPort(p.port)}
                                   className={`px-2 py-1 rounded text-xs font-medium transition ${
                                     proxyPort === p.port
-                                      ? 'bg-blue-600 text-white'
+                                      ? 'bg-blue-600 !text-white'
                                       : appTheme === 'light'
                                         ? 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                                         : 'bg-navy-900 text-gray-300 hover:bg-navy-700'
@@ -2990,7 +3116,7 @@ const App: React.FC = () => {
                               onClick={() => setPortListenerProtocol(proto)}
                               className={`px-3 py-2 rounded-lg text-sm font-medium transition ${
                                 portListenerProtocol === proto
-                                  ? 'bg-orange-600 text-white'
+                                  ? 'bg-orange-600 !text-white'
                                   : appTheme === 'light'
                                     ? 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                                     : 'bg-navy-900 text-gray-300 hover:bg-navy-700'
@@ -3081,6 +3207,244 @@ const App: React.FC = () => {
           {/* Known Hosts Page */}
           {activeMenu === 'knownhosts' && !activeSessionId && (
             <KnownHostsPage appTheme={appTheme} />
+          )}
+
+          {/* Port Forwarding Page */}
+          {activeMenu === 'portforward' && !activeSessionId && (
+            <PortForwardingPage appTheme={appTheme} servers={servers} />
+          )}
+
+          {/* 2FA Authenticator Page */}
+          {activeMenu === 'twofactor' && !activeSessionId && (
+            <TwoFactorPage appTheme={appTheme} />
+          )}
+
+          {/* About Page */}
+          {activeMenu === 'about' && !activeSessionId && (
+            <div className={`h-full overflow-auto ${appTheme === 'light' ? 'bg-gray-50' : 'bg-navy-900'}`}>
+              <div className="max-w-4xl mx-auto p-8">
+                {/* Header */}
+                <div className="text-center mb-8">
+                  <img 
+                    src="./icon/i.png" 
+                    alt="Marix" 
+                    className="w-24 h-24 mx-auto mb-4 rounded-2xl shadow-lg"
+                  />
+                  <h1 className={`text-3xl font-bold mb-2 ${appTheme === 'light' ? 'text-gray-900' : 'text-white'}`}>Marix</h1>
+                  <p className={`text-lg ${appTheme === 'light' ? 'text-gray-500' : 'text-gray-400'}`}>{t('appTagline') || 'Modern SSH/SFTP/RDP Client'}</p>
+                </div>
+
+                {/* Version & Update */}
+                <div className={`rounded-xl p-6 mb-6 ${appTheme === 'light' ? 'bg-white border border-gray-200' : 'bg-navy-800 border border-navy-700'}`}>
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-3">
+                      <span className={`text-sm ${appTheme === 'light' ? 'text-gray-600' : 'text-gray-400'}`}>{t('version')}</span>
+                      <span className={`px-3 py-1 rounded-lg font-mono font-bold ${appTheme === 'light' ? 'bg-teal-100 text-teal-700' : 'bg-teal-500/20 text-teal-400'}`}>v{APP_VERSION}</span>
+                      {updateInfo.hasUpdate && (
+                        <span className="px-2 py-0.5 bg-orange-500/20 text-orange-400 text-xs rounded-full animate-pulse">
+                          {t('updateAvailable') || 'Update available'}
+                        </span>
+                      )}
+                    </div>
+                    <button
+                      onClick={async () => {
+                        setUpdateInfo({ checking: true });
+                        try {
+                          const result = await ipcRenderer.invoke('app:checkForUpdates');
+                          if (result.success) {
+                            const hasUpdate = result.latestVersion && result.latestVersion !== APP_VERSION && result.latestVersion > APP_VERSION;
+                            setUpdateInfo({
+                              checking: false,
+                              latestVersion: result.latestVersion,
+                              releaseUrl: result.releaseUrl,
+                              publishedAt: result.publishedAt,
+                              releaseNotes: result.releaseNotes,
+                              hasUpdate
+                            });
+                          } else {
+                            setUpdateInfo({ checking: false, error: result.error });
+                          }
+                        } catch (err: any) {
+                          setUpdateInfo({ checking: false, error: err.message });
+                        }
+                      }}
+                      disabled={updateInfo.checking}
+                      className="px-4 py-2 bg-teal-600 hover:bg-teal-700 disabled:opacity-50 !text-white rounded-lg text-sm font-medium transition flex items-center gap-2"
+                    >
+                      {updateInfo.checking ? (
+                        <>
+                          <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                            <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" className="opacity-25" />
+                            <path fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                          </svg>
+                          {t('checking') || 'Checking...'}
+                        </>
+                      ) : (
+                        <>
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                          </svg>
+                          {t('checkForUpdates') || 'Check Updates'}
+                        </>
+                      )}
+                    </button>
+                  </div>
+                  
+                  {/* Update Info */}
+                  {updateInfo.latestVersion && (
+                    <div className={`p-3 rounded-lg ${updateInfo.hasUpdate ? (appTheme === 'light' ? 'bg-orange-50 border border-orange-200' : 'bg-orange-500/10 border border-orange-500/30') : (appTheme === 'light' ? 'bg-green-50 border border-green-200' : 'bg-green-500/10 border border-green-500/30')}`}>
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          {updateInfo.hasUpdate ? (
+                            <svg className="w-5 h-5 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M9 19l3 3m0 0l3-3m-3 3V10" />
+                            </svg>
+                          ) : (
+                            <svg className="w-5 h-5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                          )}
+                          <span className={`text-sm font-medium ${updateInfo.hasUpdate ? 'text-orange-600' : 'text-green-600'}`}>
+                            {updateInfo.hasUpdate ? `v${updateInfo.latestVersion} ${t('available') || 'available'}` : (t('upToDate') || 'Up to date')}
+                          </span>
+                        </div>
+                        {updateInfo.hasUpdate && updateInfo.releaseUrl && (
+                          <button
+                            onClick={() => ipcRenderer.invoke('app:openUrl', updateInfo.releaseUrl)}
+                            className="px-3 py-1.5 bg-orange-500 hover:bg-orange-600 !text-white text-sm rounded-lg transition flex items-center gap-1"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                            </svg>
+                            {t('download') || 'Download'}
+                          </button>
+                        )}
+                      </div>
+                      
+                      {/* Release Notes / Changelog */}
+                      {updateInfo.releaseNotes && (
+                        <div className={`mt-3 pt-3 border-t ${updateInfo.hasUpdate ? (appTheme === 'light' ? 'border-orange-200' : 'border-orange-500/30') : (appTheme === 'light' ? 'border-green-200' : 'border-green-500/30')}`}>
+                          <div className="flex items-center gap-2 mb-2">
+                            <svg className={`w-4 h-4 ${updateInfo.hasUpdate ? 'text-orange-500' : 'text-green-500'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                            </svg>
+                            <span className={`text-xs font-semibold ${updateInfo.hasUpdate ? 'text-orange-600' : 'text-green-600'}`}>
+                              {t('releaseNotes') || 'Release Notes'}
+                            </span>
+                          </div>
+                          <div className={`text-sm leading-relaxed whitespace-pre-wrap max-h-60 overflow-y-auto ${appTheme === 'light' ? 'text-gray-600' : 'text-gray-300'}`}>
+                            {updateInfo.releaseNotes}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  
+                  {updateInfo.error && (
+                    <div className={`p-3 rounded-lg ${appTheme === 'light' ? 'bg-red-50 border border-red-200' : 'bg-red-500/10 border border-red-500/30'}`}>
+                      <p className="text-sm text-red-500">{updateInfo.error}</p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Features Grid */}
+                <div className={`rounded-xl p-6 mb-6 ${appTheme === 'light' ? 'bg-white border border-gray-200' : 'bg-navy-800 border border-navy-700'}`}>
+                  <h2 className={`text-lg font-semibold mb-4 ${appTheme === 'light' ? 'text-gray-900' : 'text-white'}`}>{t('features') || 'Features'}</h2>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    {[
+                      { name: 'SSH', icon: 'M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z', color: 'teal' },
+                      { name: 'SFTP', icon: 'M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z', color: 'blue' },
+                      { name: 'FTP', icon: 'M5 19a2 2 0 01-2-2V7a2 2 0 012-2h4l2 2h4a2 2 0 012 2v1M5 19h14a2 2 0 002-2v-5a2 2 0 00-2-2H9a2 2 0 00-2 2v5a2 2 0 01-2 2z', color: 'yellow' },
+                      { name: 'RDP', icon: 'M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z', color: 'purple' },
+                      { name: '2FA/TOTP', icon: 'M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z', color: 'purple' },
+                      { name: t('portForwarding') || 'Port Forward', icon: 'M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4', color: 'cyan' },
+                      { name: 'Cloudflare DNS', icon: 'M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z', color: 'orange' },
+                      { name: t('lookup') || 'DNS/WHOIS', icon: 'M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z', color: 'green' },
+                    ].map(f => (
+                      <div key={f.name} className={`p-3 rounded-lg text-center ${appTheme === 'light' ? 'bg-gray-50' : 'bg-navy-900'}`}>
+                        <svg className={`w-6 h-6 mx-auto mb-2 text-${f.color}-500`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={f.icon} />
+                        </svg>
+                        <span className={`text-xs font-medium ${appTheme === 'light' ? 'text-gray-700' : 'text-gray-300'}`}>{f.name}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Security & Info */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                  {/* Security */}
+                  <div className={`rounded-xl p-6 ${appTheme === 'light' ? 'bg-white border border-gray-200' : 'bg-navy-800 border border-navy-700'}`}>
+                    <h2 className={`text-lg font-semibold mb-3 flex items-center gap-2 ${appTheme === 'light' ? 'text-gray-900' : 'text-white'}`}>
+                      <svg className="w-5 h-5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                      </svg>
+                      {t('security') || 'Security'}
+                    </h2>
+                    <ul className={`space-y-2 text-sm ${appTheme === 'light' ? 'text-gray-600' : 'text-gray-400'}`}>
+                      <li className="flex items-center gap-2">
+                        <svg className="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        </svg>
+                        {t('zeroKnowledge') || 'Zero-knowledge architecture'}
+                      </li>
+                      <li className="flex items-center gap-2">
+                        <svg className="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        </svg>
+                        {t('localStorage') || 'Data stored locally only'}
+                      </li>
+                      <li className="flex items-center gap-2">
+                        <svg className="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        </svg>
+                        {t('argon2Encryption') || 'Argon2id encrypted backups'}
+                      </li>
+                      <li className="flex items-center gap-2">
+                        <svg className="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        </svg>
+                        {t('openSource') || 'Open source on GitHub'}
+                      </li>
+                    </ul>
+                  </div>
+
+                  {/* Author */}
+                  <div className={`rounded-xl p-6 ${appTheme === 'light' ? 'bg-white border border-gray-200' : 'bg-navy-800 border border-navy-700'}`}>
+                    <h2 className={`text-lg font-semibold mb-3 ${appTheme === 'light' ? 'text-gray-900' : 'text-white'}`}>{t('author') || 'Author'}</h2>
+                    <div className="flex items-center gap-4">
+                      <div className="w-14 h-14 rounded-full bg-gradient-to-br from-teal-500 to-teal-600 flex items-center justify-center text-white font-bold text-xl">
+                        M
+                      </div>
+                      <div>
+                        <p className={`font-semibold ${appTheme === 'light' ? 'text-gray-900' : 'text-white'}`}>{APP_AUTHOR}</p>
+                        <button
+                          onClick={() => ipcRenderer.invoke('app:openUrl', GITHUB_REPO)}
+                          className="flex items-center gap-1 text-teal-500 hover:text-teal-400 transition text-sm mt-1"
+                        >
+                          <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+                          </svg>
+                          GitHub
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Tech Stack */}
+                <div className={`rounded-xl p-6 ${appTheme === 'light' ? 'bg-white border border-gray-200' : 'bg-navy-800 border border-navy-700'}`}>
+                  <h2 className={`text-lg font-semibold mb-3 ${appTheme === 'light' ? 'text-gray-900' : 'text-white'}`}>{t('techStack') || 'Technology'}</h2>
+                  <div className="flex flex-wrap gap-2">
+                    {['Electron', 'React', 'TypeScript', 'Tailwind CSS', 'xterm.js', 'SSH2', 'Argon2'].map(tech => (
+                      <span key={tech} className={`px-3 py-1.5 rounded-lg text-sm font-medium ${appTheme === 'light' ? 'bg-gray-100 text-gray-700' : 'bg-navy-900 text-gray-300'}`}>
+                        {tech}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
           )}
 
           {/* Active Sessions */}
@@ -3484,182 +3848,6 @@ const App: React.FC = () => {
         <SSHKeyManager
           onClose={() => setShowSSHKeyManager(false)}
         />
-      )}
-
-      {/* About Modal */}
-      {showAboutModal && (
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center">
-          <div 
-            className="absolute inset-0 bg-black/70 backdrop-blur-sm"
-            onClick={() => setShowAboutModal(false)}
-          />
-          <div className={`relative rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden ${appTheme === 'light' ? 'bg-white' : 'bg-navy-800 border border-navy-700'}`}>
-            {/* Header */}
-            <div className={`p-6 text-center ${appTheme === 'light' ? 'bg-gradient-to-b from-teal-50 to-white' : 'bg-gradient-to-b from-navy-700 to-navy-800'}`}>
-              <div className="w-20 h-20 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-teal-500 to-teal-600 flex items-center justify-center shadow-lg">
-                <svg className="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" />
-                </svg>
-              </div>
-              <h2 className={`text-2xl font-bold mb-1 ${appTheme === 'light' ? 'text-gray-900' : 'text-white'}`}>Marix</h2>
-              <p className={`text-sm ${appTheme === 'light' ? 'text-gray-500' : 'text-gray-400'}`}>{t('appTagline') || 'Modern Zero-Knowledge SSH Client'}</p>
-            </div>
-            
-            {/* Info */}
-            <div className="p-6 space-y-3">
-              {/* Author */}
-              <div className={`flex items-center justify-between py-2 ${appTheme === 'light' ? 'border-b border-gray-100' : 'border-b border-navy-700'}`}>
-                <span className={appTheme === 'light' ? 'text-gray-600' : 'text-gray-400'}>{t('author') || 'Author'}</span>
-                <button 
-                  onClick={() => ipcRenderer.invoke('app:openUrl', GITHUB_REPO)}
-                  className="flex items-center gap-2 text-teal-500 hover:text-teal-400 transition"
-                >
-                  <span className="font-medium">{APP_AUTHOR}</span>
-                  <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
-                  </svg>
-                </button>
-              </div>
-              
-              <div className={`flex items-center justify-between py-2 ${appTheme === 'light' ? 'border-b border-gray-100' : 'border-b border-navy-700'}`}>
-                <span className={appTheme === 'light' ? 'text-gray-600' : 'text-gray-400'}>{t('version')}</span>
-                <div className="flex items-center gap-2">
-                  <span className={`font-mono ${appTheme === 'light' ? 'text-gray-900' : 'text-white'}`}>{APP_VERSION}</span>
-                  {updateInfo.hasUpdate && (
-                    <span className="px-2 py-0.5 bg-orange-500/20 text-orange-400 text-xs rounded-full animate-pulse">
-                      {t('updateAvailable') || 'Update available'}
-                    </span>
-                  )}
-                </div>
-              </div>
-              
-              <div className={`flex items-center justify-between py-2 ${appTheme === 'light' ? 'border-b border-gray-100' : 'border-b border-navy-700'}`}>
-                <span className={appTheme === 'light' ? 'text-gray-600' : 'text-gray-400'}>{t('platform')}</span>
-                <span className={`font-mono ${appTheme === 'light' ? 'text-gray-900' : 'text-white'}`}>{process.platform}</span>
-              </div>
-              
-              <div className={`flex items-center justify-between py-2 ${appTheme === 'light' ? 'border-b border-gray-100' : 'border-b border-navy-700'}`}>
-                <span className={appTheme === 'light' ? 'text-gray-600' : 'text-gray-400'}>Electron</span>
-                <span className={`font-mono ${appTheme === 'light' ? 'text-gray-900' : 'text-white'}`}>{process.versions.electron}</span>
-              </div>
-              
-              <div className={`flex items-center justify-between py-2`}>
-                <span className={appTheme === 'light' ? 'text-gray-600' : 'text-gray-400'}>Node.js</span>
-                <span className={`font-mono ${appTheme === 'light' ? 'text-gray-900' : 'text-white'}`}>{process.versions.node}</span>
-              </div>
-              
-              {/* Update Info */}
-              {updateInfo.latestVersion && (
-                <div className={`mt-3 p-3 rounded-lg ${updateInfo.hasUpdate ? (appTheme === 'light' ? 'bg-orange-50 border border-orange-200' : 'bg-orange-500/10 border border-orange-500/30') : (appTheme === 'light' ? 'bg-green-50 border border-green-200' : 'bg-green-500/10 border border-green-500/30')}`}>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      {updateInfo.hasUpdate ? (
-                        <svg className="w-5 h-5 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M9 19l3 3m0 0l3-3m-3 3V10" />
-                        </svg>
-                      ) : (
-                        <svg className="w-5 h-5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                      )}
-                      <div>
-                        <p className={`text-sm font-medium ${updateInfo.hasUpdate ? 'text-orange-600' : 'text-green-600'}`}>
-                          {updateInfo.hasUpdate ? (t('newVersionAvailable') || `New version ${updateInfo.latestVersion} available!`) : (t('upToDate') || 'You are up to date!')}
-                        </p>
-                        {updateInfo.publishedAt && (
-                          <p className={`text-xs ${appTheme === 'light' ? 'text-gray-500' : 'text-gray-400'}`}>
-                            {new Date(updateInfo.publishedAt).toLocaleDateString()}
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                    {updateInfo.hasUpdate && updateInfo.releaseUrl && (
-                      <button
-                        onClick={() => ipcRenderer.invoke('app:openUrl', updateInfo.releaseUrl)}
-                        className="px-3 py-1.5 bg-orange-500 hover:bg-orange-600 text-white text-sm rounded-lg transition flex items-center gap-1"
-                      >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                        </svg>
-                        {t('download') || 'Download'}
-                      </button>
-                    )}
-                  </div>
-                </div>
-              )}
-              
-              {updateInfo.error && (
-                <div className={`mt-3 p-3 rounded-lg ${appTheme === 'light' ? 'bg-red-50 border border-red-200' : 'bg-red-500/10 border border-red-500/30'}`}>
-                  <p className="text-sm text-red-500">{updateInfo.error}</p>
-                </div>
-              )}
-              
-              {/* Features */}
-              <div className={`mt-4 p-4 rounded-lg ${appTheme === 'light' ? 'bg-gray-50' : 'bg-navy-900'}`}>
-                <p className={`text-xs font-medium mb-2 ${appTheme === 'light' ? 'text-gray-600' : 'text-gray-400'}`}>{t('features') || 'Features'}</p>
-                <div className="flex flex-wrap gap-2">
-                  {['SSH', 'SFTP', 'FTP', 'RDP', 'WSS', 'Cloudflare DNS', 'WHOIS', t('lookup')].map(f => (
-                    <span key={f} className={`px-2 py-1 rounded text-xs ${appTheme === 'light' ? 'bg-teal-100 text-teal-700' : 'bg-teal-500/20 text-teal-400'}`}>
-                      {f}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            </div>
-            
-            {/* Footer */}
-            <div className={`p-4 flex items-center justify-between ${appTheme === 'light' ? 'bg-gray-50 border-t border-gray-100' : 'bg-navy-900 border-t border-navy-700'}`}>
-              <button
-                onClick={() => setShowAboutModal(false)}
-                className={`px-4 py-2 rounded-lg transition ${appTheme === 'light' ? 'text-gray-600 hover:bg-gray-200' : 'text-gray-400 hover:bg-navy-700'}`}
-              >
-                {t('close')}
-              </button>
-              <button
-                onClick={async () => {
-                  setUpdateInfo({ checking: true });
-                  try {
-                    const result = await ipcRenderer.invoke('app:checkForUpdates');
-                    if (result.success) {
-                      const hasUpdate = result.latestVersion && result.latestVersion !== APP_VERSION && result.latestVersion > APP_VERSION;
-                      setUpdateInfo({
-                        checking: false,
-                        latestVersion: result.latestVersion,
-                        releaseUrl: result.releaseUrl,
-                        publishedAt: result.publishedAt,
-                        releaseNotes: result.releaseNotes,
-                        hasUpdate
-                      });
-                    } else {
-                      setUpdateInfo({ checking: false, error: result.error });
-                    }
-                  } catch (err: any) {
-                    setUpdateInfo({ checking: false, error: err.message });
-                  }
-                }}
-                disabled={updateInfo.checking}
-                className="px-4 py-2 bg-teal-600 hover:bg-teal-700 disabled:opacity-50 !text-white rounded-lg font-medium transition flex items-center gap-2"
-              >
-                {updateInfo.checking ? (
-                  <>
-                    <svg className="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" className="opacity-25" />
-                      <path fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                    </svg>
-                    {t('checking') || 'Checking...'}
-                  </>
-                ) : (
-                  <>
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                    </svg>
-                    {t('checkForUpdates') || 'Check for Updates'}
-                  </>
-                )}
-              </button>
-            </div>
-          </div>
-        </div>
       )}
 
       {/* Backup Modal */}

@@ -33,13 +33,13 @@
 
 ## ⚠️ Disclaimer
 
-> **IKAW ANG RESPONSABLE SA IYONG SARILING DATA.**
+> **You are responsible for your own data.**
 >
-> Iniimbak ng Marix ang lahat ng data nang lokal sa iyong device na may malakas na encryption. Gayunpaman:
-> - **Hindi namin mababawi ang iyong data** kung mawala ang iyong backup password
-> - **Wala kaming mga server** — walang "nakalimutan ang password" na opsyon
-> - **Mag-backup nang regular** — maaaring masira ang hardware
-> - **Ikaw ang may-ari ng iyong seguridad** — nagbibigay kami ng mga tool, ikaw ang nagdedesisyon
+> Marix stores all data locally with strong encryption. However:
+> - If you lose your backup password, **data is unrecoverable**
+> - **No servers** — no "forgot password" option
+> - **Backup regularly** — hardware can fail
+> - You own your security — we provide tools, you decide
 
 ---
 
@@ -91,7 +91,7 @@
 | **Terminal** | xterm.js 6 | High-performance terminal emulation |
 | **SSH/SFTP** | ssh2 + node-pty | Native SSH protocol implementation |
 | **Code Editor** | CodeMirror 6 | Magaang syntax highlighting |
-| **Encryption** | Argon2 + Node.js Crypto | Military-grade security |
+| **Encryption** | Argon2 + Node.js Crypto | Strong client-side encryption |
 | **Styling** | Tailwind CSS 4 | Modern at minimal na CSS |
 | **Build** | Webpack 5 + TypeScript 5 | Optimized production bundles |
 
@@ -146,7 +146,7 @@
 
 ### Paano Gumagana ang Encryption
 
-Lahat ng backup ay gumagamit ng military-grade encryption gamit ang **Argon2id** at **AES-256-GCM**:
+Lahat ng backup ay gumagamit ng **Argon2id** at **AES-256-GCM**:
 
 <p align="center">
   <img src="flow.png" alt="Encryption Flow" width="800">

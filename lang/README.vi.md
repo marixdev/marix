@@ -5,11 +5,11 @@
 <h1 align="center">Marix</h1>
 
 <p align="center">
-  <strong>Ứng Dụng SSH Zero-Knowledge Hiện Đại</strong>
+  <strong>SSH client zero-knowledge hiện đại</strong>
 </p>
 
 <p align="center">
-  <em>Thông tin đăng nhập của bạn không bao giờ rời khỏi thiết bị. Không cloud. Không theo dõi. Không thỏa hiệp.</em>
+  <em>Credentials không rời thiết bị. Không cloud. Không tracking. Không server.</em>
 </p>
 
 <p align="center">
@@ -20,7 +20,7 @@
 
 ---
 
-## 🌍 Ngôn Ngữ Khác
+## 🌍 Ngôn ngữ khác
 
 | | | | |
 |---|---|---|---|
@@ -31,75 +31,75 @@
 
 ---
 
-## ⚠️ Tuyên Bố Miễn Trừ Trách Nhiệm
+## ⚠️ Disclaimer
 
-> **BẠN CHỊU TRÁCH NHIỆM VỀ DỮ LIỆU CỦA CHÍNH MÌNH.**
+> **Bạn chịu trách nhiệm về dữ liệu của mình.**
 >
-> Marix lưu trữ tất cả dữ liệu cục bộ trên thiết bị của bạn với mã hóa mạnh. Tuy nhiên:
-> - **Chúng tôi không thể khôi phục dữ liệu** nếu bạn mất mật khẩu sao lưu
-> - **Chúng tôi không có máy chủ** — không có tùy chọn "quên mật khẩu"
-> - **Sao lưu thường xuyên** — phần cứng có thể hỏng
-> - **Bạn sở hữu bảo mật của mình** — chúng tôi cung cấp công cụ, bạn đưa ra quyết định
+> Marix lưu tất cả dữ liệu local với encryption mạnh. Lưu ý:
+> - Nếu mất password, dữ liệu **không thể khôi phục**
+> - Không có server — không có "quên password"
+> - Backup thường xuyên — hardware có thể hỏng
+> - Bạn tự quản lý security của mình
 
 ---
 
-## 🔒 Kiến Trúc Zero-Knowledge
+## 🔒 Zero-knowledge architecture
 
-### Nguyên Tắc Cốt Lõi
+### Core principles
 
-| | Nguyên Tắc | Mô Tả |
+| | Nguyên tắc | Mô tả |
 |---|-----------|-------|
-| 🔐 | **100% Ngoại Tuyến** | Tất cả thông tin đăng nhập lưu cục bộ—không bao giờ tải lên |
-| ☁️ | **Không Cloud** | Chúng tôi không có máy chủ. Dữ liệu không bao giờ chạm internet |
-| 📊 | **Không Telemetry** | Không theo dõi, không phân tích, không thu thập dữ liệu |
-| 🔓 | **Mã Nguồn Mở** | Code có thể kiểm toán hoàn toàn theo GPL-3.0 |
+| 🔐 | **100% Offline** | Credentials lưu local — không upload |
+| ☁️ | **Không cloud** | Không có server. Data không chạm internet |
+| 📊 | **Không telemetry** | Không tracking, không analytics |
+| 🔓 | **Open source** | Code audit được theo GPL-3.0 |
 
-### Công Nghệ Mã Hóa
+### Encryption
 
-| | Tính Năng | Công Nghệ | Mô Tả |
+| | Feature | Technology | Mô tả |
 |---|---------|-----------|-------|
-| 🛡️ | **Lưu Trữ Cục Bộ** | Argon2id + AES-256 | Thông tin được mã hóa khi lưu trên thiết bị |
-| 📦 | **Sao Lưu File** | Argon2id + AES-256-GCM | Xuất file `.marix` được mã hóa với xác thực |
-| 🔄 | **Đồng Bộ GitHub** | Argon2id + AES-256-GCM | Sao lưu cloud zero-knowledge |
+| 🛡️ | **Local storage** | Argon2id + AES-256 | Credentials encrypted at rest |
+| 📦 | **File backup** | Argon2id + AES-256-GCM | Export file `.marix` encrypted |
+| 🔄 | **GitHub Sync** | Argon2id + AES-256-GCM | Zero-knowledge cloud backup |
 
 ---
 
-## ⚡ Hiệu Năng & Tối Ưu Hóa
+## ⚡ Performance & optimization
 
-### Quản Lý Bộ Nhớ Thích Ứng
+### Adaptive memory management
 
-| RAM Hệ Thống | Bộ Nhớ Argon2id | Mức Bảo Mật |
+| System RAM | Argon2id Memory | Security Level |
 |--------------|-----------------|-------------|
-| ≥ 8 GB | 64 MB | Cao |
-| ≥ 4 GB | 32 MB | Trung Bình |
-| < 4 GB | 16 MB | Tối ưu cho máy RAM thấp |
+| ≥ 8 GB | 64 MB | High |
+| ≥ 4 GB | 32 MB | Medium |
+| < 4 GB | 16 MB | Optimized for low RAM |
 
-### Tối Ưu Hóa Runtime
+### Runtime optimizations
 
-| Tối Ưu Hóa | Công Nghệ | Lợi Ích |
+| Optimization | Technology | Benefit |
 |------------|-----------|---------|
-| **Giới Hạn V8 Heap** | `--max-old-space-size=256MB` | Ngăn chặn phình bộ nhớ |
-| **Background Throttling** | `--disable-renderer-backgrounding` | Giữ kết nối hoạt động |
-| **Terminal Buffer** | Scrollback: 3,000 dòng | Giảm 70% bộ nhớ |
-| **Lazy Loading** | Tải component theo yêu cầu | Khởi động nhanh hơn |
+| **V8 Heap Limit** | `--max-old-space-size=256MB` | Prevents memory bloat |
+| **Background Throttling** | `--disable-renderer-backgrounding` | Keeps connections alive |
+| **Terminal Buffer** | Scrollback: 3,000 lines | 70% memory reduction |
+| **Lazy Loading** | On-demand component loading | Faster startup |
 
-### Tech Stack
+### Tech stack
 
-| Thành Phần | Công Nghệ | Mục Đích |
+| Component | Technology | Purpose |
 |------------|-----------|----------|
-| **Framework** | Electron 39 + React 19 | Ứng dụng desktop đa nền tảng |
-| **Terminal** | xterm.js 6 | Giả lập terminal hiệu năng cao |
-| **SSH/SFTP** | ssh2 + node-pty | Triển khai giao thức SSH native |
-| **Code Editor** | CodeMirror 6 | Syntax highlighting nhẹ |
-| **Mã Hóa** | Argon2 + Node.js Crypto | Bảo mật cấp quân sự |
-| **Styling** | Tailwind CSS 4 | CSS hiện đại, tối giản |
-| **Build** | Webpack 5 + TypeScript 5 | Bundle production tối ưu |
+| **Framework** | Electron 39 + React 19 | Cross-platform desktop app |
+| **Terminal** | xterm.js 6 | High-performance terminal emulation |
+| **SSH/SFTP** | ssh2 + node-pty | Native SSH protocol implementation |
+| **Code Editor** | CodeMirror 6 | Lightweight syntax highlighting |
+| **Encryption** | Argon2 + Node.js Crypto | Strong client-side encryption |
+| **Styling** | Tailwind CSS 4 | Modern, minimal CSS |
+| **Build** | Webpack 5 + TypeScript 5 | Optimized production bundles |
 
 ---
 
-## 📥 Tải Xuống
+## 📥 Download
 
-| Hệ điều hành | Tải xuống |
+| Hệ điều hành | Download |
 |--------------|-----------|
 | **Windows** | [Tải .exe](https://github.com/user/marix/releases/latest/download/Marix-Setup.exe) |
 | **macOS** | [Intel .dmg](https://github.com/user/marix/releases/latest/download/Marix.dmg) • [Apple Silicon](https://github.com/user/marix/releases/latest/download/Marix-arm64.dmg) |
@@ -107,109 +107,109 @@
 
 ---
 
-## ✨ Tính Năng
+## ✨ Features
 
-### 🔌 Kết Nối Đa Giao Thức
+### 🔌 Multi-protocol connections
 
-| Giao Thức | Công Nghệ | Mô Tả |
+| Protocol | Technology | Mô tả |
 |-----------|-----------|-------|
-| **SSH** | ssh2 + node-pty | Secure Shell với xác thực mật khẩu & private key |
-| **SFTP** | ssh2 | Trình quản lý file hai panel với kéo thả |
-| **FTP/FTPS** | basic-ftp | Hỗ trợ FTP tiêu chuẩn và bảo mật |
+| **SSH** | ssh2 + node-pty | Secure Shell với password & private key authentication |
+| **SFTP** | ssh2 | Dual-pane file manager với drag-drop |
+| **FTP/FTPS** | basic-ftp | Standard and secure FTP support |
 | **RDP** | xfreerdp3 / mstsc | Remote Desktop (xfreerdp3 trên Linux, mstsc trên Windows) |
 
 ### 💻 Terminal
 
-- **Hơn 400 theme màu** — Dracula, Solarized, Catppuccin, Nord...
-- **Font tùy chỉnh** — Bất kỳ font hệ thống nào
-- **Full xterm.js 6** — Giả lập terminal hoàn chỉnh với Unicode
-- **Bảo toàn phiên** — Tab được giữ lại khi kết nối lại
-- **Phát hiện OS** — Tự động phát hiện distro Linux
+- **400+ color themes** — Dracula, Solarized, Catppuccin, Nord...
+- **Custom fonts** — Bất kỳ font hệ thống
+- **Full xterm.js 6** — Terminal emulation hoàn chỉnh với Unicode
+- **Session preservation** — Tab giữ lại khi reconnect
+- **OS detection** — Auto-detect Linux distro
 
-### 📁 Trình Quản Lý File SFTP
+### 📁 SFTP file manager
 
-- **Giao diện hai panel** — Local ↔ Remote cạnh nhau
-- **Editor tích hợp** — CodeMirror 6 với syntax highlighting 15+ ngôn ngữ
-- **Kéo & thả** — Upload/download file dễ dàng
-- **Quản lý quyền** — chmod với giao diện trực quan
+- **Dual-pane interface** — Local ↔ Remote cạnh nhau
+- **Integrated editor** — CodeMirror 6 với syntax highlighting 15+ ngôn ngữ
+- **Drag & drop** — Upload/download file dễ dàng
+- **Permission management** — chmod với visual interface
 
-### 🛠️ Công Cụ Tích Hợp
+### 🛠️ Built-in tools
 
-- **DNS & Mạng**: A, AAAA, MX, TXT, SPF, CNAME, NS, SOA, PTR, Ping, Traceroute, TCP port, HTTP/HTTPS, SMTP, Blacklist, WHOIS, ARIN
-- **Quản Lý DNS Cloudflare**: Quản lý domain, bản ghi DNS, proxy Cloudflare
-- **Quản Lý SSH Key**: Tạo RSA-4096, Ed25519, ECDSA-521, import/export key
-- **Quản Lý Known Hosts**: Xem fingerprint, import từ host, xóa host không tin cậy
+- **DNS & Network**: A, AAAA, MX, TXT, SPF, CNAME, NS, SOA, PTR, Ping, Traceroute, TCP port, HTTP/HTTPS, SMTP, Blacklist, WHOIS, ARIN
+- **Cloudflare DNS Manager**: Quản lý domain, DNS records, Cloudflare proxy
+- **SSH Key Manager**: Generate RSA-4096, Ed25519, ECDSA-521, import/export key
+- **Known Hosts Manager**: Xem fingerprint, import từ host, xóa host không trust
 
 ---
 
-## 💾 Sao Lưu & Khôi Phục
+## 💾 Backup & Restore
 
-### Cách Mã Hóa Hoạt Động
+### Encryption
 
-Tất cả sao lưu sử dụng mã hóa cấp quân sự với **Argon2id** và **AES-256-GCM**:
+Tất cả backup sử dụng **Argon2id** và **AES-256-GCM**:
 
 <p align="center">
   <img src="flow.png" alt="Luồng Mã Hóa" width="800">
 </p>
 
-### Những Gì Được Sao Lưu
+### What gets backed up
 
-| Dữ Liệu | Bao Gồm | Mã Hóa |
+| Data | Included | Encrypted |
 |---------|---------|--------|
-| Danh sách server | ✅ | ✅ AES-256-GCM |
+| Server list | ✅ | ✅ AES-256-GCM |
 | SSH private key | ✅ | ✅ AES-256-GCM |
 | Cloudflare API token | ✅ | ✅ AES-256-GCM |
-| Cài đặt ứng dụng | ✅ | ✅ AES-256-GCM |
+| App settings | ✅ | ✅ AES-256-GCM |
 | Known hosts | ❌ | — |
 
-### Đảm Bảo Bảo Mật
+### Security guarantees
 
-- 🔐 **Mật khẩu không bao giờ lưu** — Không trong file, không trên GitHub
-- 🔒 **Zero-knowledge** — Ngay cả nhà phát triển cũng không thể giải mã
-- 🛡️ **Chống brute-force** — Argon2id yêu cầu 16-64MB RAM mỗi lần thử
-- ✅ **Chống giả mạo** — AES-GCM phát hiện mọi sửa đổi
+- 🔐 **Password never stored** — Không trong file, không trên GitHub
+- 🔒 **Zero-knowledge** — Developer cũng không thể decrypt
+- 🛡️ **Brute-force resistant** — Argon2id yêu cầu 16-64MB RAM mỗi attempt
+- ✅ **Tamper-proof** — AES-GCM detect mọi modification
 
-### Sao Lưu GitHub (Zero-Knowledge)
+### GitHub Backup (Zero-Knowledge)
 
-1. **Đăng nhập với GitHub** → Mã thiết bị xuất hiện → Trình duyệt mở → Cho phép → Repository `marix-backup` tự động tạo
-2. **Sao lưu**: Nhấp "Sao lưu lên GitHub" → Nhập mật khẩu → Dữ liệu mã hóa được đẩy lên
-3. **Khôi phục**: Đăng nhập GitHub → "Khôi phục từ GitHub" → Nhập mật khẩu để giải mã
+1. **Login với GitHub** → Device code xuất hiện → Browser mở → Authorize → Repository `marix-backup` tự động tạo
+2. **Backup**: Click "Backup to GitHub" → Nhập password → Encrypted data được push
+3. **Restore**: Login GitHub → "Restore from GitHub" → Nhập password để decrypt
 
-> ⚠️ **Quan trọng**: Nếu mất mật khẩu, backup **vĩnh viễn không thể khôi phục**. Không ai có thể giải mã.
+> ⚠️ **Important**: Nếu mất password, backup **không thể recover**. Không ai có thể decrypt.
 
 ---
 
-## 🛡️ Thông Số Bảo Mật
+## 🛡️ Security specifications
 
-| Thành Phần | Thuật Toán | Tham Số |
-|------------|------------|---------|
-| Key Derivation | Argon2id | 16-64MB bộ nhớ, 3 vòng lặp, 4 luồng |
-| Mã hóa | AES-256-GCM | Khóa 256-bit, có xác thực |
-| Salt | CSPRNG | 32 byte mỗi backup |
-| IV/Nonce | CSPRNG | 16 byte mỗi thao tác |
+| Component | Algorithm | Parameters |
+|------------|------------|----------|
+| Key Derivation | Argon2id | 16-64MB memory, 3 iterations, 4 lanes |
+| Encryption | AES-256-GCM | 256-bit key, authenticated |
+| Salt | CSPRNG | 32 bytes per backup |
+| IV/Nonce | CSPRNG | 16 bytes per operation |
 
-### Yêu Cầu Mật Khẩu
+### Password requirements
 
 - ✅ Tối thiểu 10 ký tự
-- ✅ Ít nhất 1 chữ hoa (A-Z)
-- ✅ Ít nhất 1 chữ thường (a-z)
-- ✅ Ít nhất 1 số (0-9)
-- ✅ Ít nhất 1 ký tự đặc biệt (!@#$%^&*...)
+- ✅ Ít nhất 1 uppercase (A-Z)
+- ✅ Ít nhất 1 lowercase (a-z)
+- ✅ Ít nhất 1 number (0-9)
+- ✅ Ít nhất 1 special character (!@#$%^&*...)
 
 ---
 
-## 🔧 Build Từ Mã Nguồn
+## 🔧 Build from source
 
 ```bash
 git clone https://github.com/marixdev/marix.git
 cd marix
 npm install
-npm run dev      # Phát triển
+npm run dev      # Development
 npm run build    # Build
-npm run package:linux  # Đóng gói
+npm run package:linux  # Package
 ```
 
-### Dependencies RDP cho Linux
+### RDP dependencies for Linux
 
 ```bash
 # Ubuntu/Debian
@@ -224,13 +224,13 @@ sudo pacman -S freerdp xdotool
 
 ---
 
-## 📄 Giấy Phép
+## 📄 License
 
 **GNU General Public License v3.0** (GPL-3.0)
 
 ---
 
 <p align="center">
-  <strong>Marix</strong> — Ứng dụng SSH zero-knowledge hiện đại<br>
-  <em>Dữ liệu của bạn. Trách nhiệm của bạn. Tự do của bạn.</em>
+  <strong>Marix</strong> — Modern zero-knowledge SSH client<br>
+  <em>Your data. Your responsibility. Your freedom.</em>
 </p>

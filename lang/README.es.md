@@ -31,15 +31,15 @@
 
 ---
 
-## ⚠️ Descargo de Responsabilidad
+## ⚠️ Disclaimer
 
-> **ERES RESPONSABLE DE TUS PROPIOS DATOS.**
+> **You are responsible for your own data.**
 >
-> Marix almacena todos los datos localmente en tu dispositivo con cifrado fuerte. Sin embargo:
-> - **No podemos recuperar tus datos** si pierdes tu contraseña de respaldo
-> - **No tenemos servidores** — no hay opción de "olvidé mi contraseña"
-> - **Haz copias de seguridad regularmente** — el hardware puede fallar
-> - **Tú controlas tu seguridad** — proporcionamos las herramientas, tú tomas las decisiones
+> Marix stores all data locally with strong encryption. However:
+> - Password lost = **data unrecoverable**
+> - **No servers** — no "forgot password" option
+> - **Backup regularly** — hardware can fail
+> - You own your security
 
 ---
 
@@ -51,7 +51,7 @@
 |---|-----------|-------------|
 | 🔐 | **100% Sin Conexión** | Todas las credenciales almacenadas localmente—nunca cargadas |
 | ☁️ | **Sin Nube** | No tenemos servidores. Tus datos nunca tocan Internet |
-| 📊 | **Sin Telemetría** | Sin rastreo, sin análisis, sin recopilación de datos |
+| 📊 | **No Telemetry** | Sin rastreo, sin análisis, sin recolección de datos |
 | 🔓 | **Código Abierto** | Código completamente auditable bajo GPL-3.0 |
 
 ### Tecnología de Cifrado
@@ -91,7 +91,7 @@
 | **Terminal** | xterm.js 6 | Emulación de terminal de alto rendimiento |
 | **SSH/SFTP** | ssh2 + node-pty | Implementación nativa del protocolo SSH |
 | **Editor de Código** | CodeMirror 6 | Resaltado de sintaxis ligero |
-| **Cifrado** | Argon2 + Node.js Crypto | Seguridad de grado militar |
+| **Cifrado** | Argon2 + Node.js Crypto | Client-side encryption robusto |
 | **Estilos** | Tailwind CSS 4 | CSS moderno y minimalista |
 | **Build** | Webpack 5 + TypeScript 5 | Bundles de producción optimizados |
 
@@ -146,7 +146,7 @@
 
 ### Cómo Funciona el Cifrado
 
-Todos los respaldos usan cifrado de grado militar con **Argon2id** y **AES-256-GCM**:
+Todos los respaldos usan **Argon2id** y **AES-256-GCM**:
 
 <p align="center">
   <img src="flow.png" alt="Flujo de Cifrado" width="800">

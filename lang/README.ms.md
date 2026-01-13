@@ -31,15 +31,15 @@
 
 ---
 
-## ⚠️ Penafian
+## ⚠️ Disclaimer
 
-> **ANDA BERTANGGUNGJAWAB UNTUK DATA ANDA SENDIRI.**
+> **You are responsible for your own data.**
 >
-> Marix menyimpan semua data secara tempatan pada peranti anda dengan penyulitan yang kuat. Walau bagaimanapun:
-> - **Kami tidak dapat memulihkan data anda** jika anda kehilangan kata laluan sandaran
-> - **Kami tidak mempunyai pelayan** — tiada pilihan "lupa kata laluan"
-> - **Sandarkan secara berkala** — perkakasan boleh rosak
-> - **Anda memiliki keselamatan anda** — kami menyediakan alat, anda membuat keputusan
+> Marix stores all data locally with strong encryption. However:
+> - If you lose your backup password, **data is unrecoverable**
+> - **No servers** — no "forgot password" option
+> - **Backup regularly** — hardware can fail
+> - You own your security
 
 ---
 
@@ -51,7 +51,7 @@
 |---|---------|------------|
 | 🔐 | **100% Luar Talian** | Semua kredensial disimpan secara tempatan—tidak pernah dimuat naik |
 | ☁️ | **Tiada Awan** | Kami tidak mempunyai pelayan. Data anda tidak pernah menyentuh Internet |
-| 📊 | **Tiada Telemetri** | Tiada penjejakan, tiada analitik, tiada pengumpulan data |
+| 📊 | **No Telemetry** | No tracking, no analytics, no data collection |
 | 🔓 | **Sumber Terbuka** | Kod yang boleh diaudit sepenuhnya di bawah GPL-3.0 |
 
 ### Teknologi Penyulitan
@@ -91,7 +91,7 @@
 | **Terminal** | xterm.js 6 | Emulasi terminal berprestasi tinggi |
 | **SSH/SFTP** | ssh2 + node-pty | Pelaksanaan protokol SSH asli |
 | **Code Editor** | CodeMirror 6 | Penyerlahan sintaks ringan |
-| **Penyulitan** | Argon2 + Node.js Crypto | Keselamatan gred tentera |
+| **Penyulitan** | Argon2 + Node.js Crypto | Client-side encryption yang kukuh |
 | **Styling** | Tailwind CSS 4 | CSS moden dan minimal |
 | **Build** | Webpack 5 + TypeScript 5 | Bundle pengeluaran yang dioptimumkan |
 
@@ -146,7 +146,7 @@
 
 ### Cara Penyulitan Berfungsi
 
-Semua sandaran menggunakan penyulitan gred tentera dengan **Argon2id** dan **AES-256-GCM**:
+Semua sandaran menggunakan **Argon2id** dan **AES-256-GCM**:
 
 <p align="center">
   <img src="flow.png" alt="Aliran Penyulitan" width="800">

@@ -31,15 +31,15 @@
 
 ---
 
-## ⚠️ Aviso Legal
+## ⚠️ Disclaimer
 
-> **VOCÊ É RESPONSÁVEL PELOS SEUS PRÓPRIOS DADOS.**
+> **You are responsible for your own data.**
 >
-> O Marix armazena todos os dados localmente no seu dispositivo com criptografia forte. No entanto:
-> - **Não podemos recuperar seus dados** se você perder sua senha de backup
-> - **Não temos servidores** — não há opção "esqueci a senha"
-> - **Faça backup regularmente** — hardware pode falhar
-> - **Você controla sua segurança** — fornecemos as ferramentas, você toma as decisões
+> Marix stores all data locally with strong encryption. However:
+> - Password lost = **data unrecoverable**
+> - **No servers** — no "forgot password" option
+> - **Backup regularly** — hardware can fail
+> - You own your security
 
 ---
 
@@ -51,7 +51,7 @@
 |---|-----------|-----------|
 | 🔐 | **100% Offline** | Todas as credenciais armazenadas localmente—nunca enviadas |
 | ☁️ | **Sem Nuvem** | Não temos servidores. Seus dados nunca tocam a Internet |
-| 📊 | **Sem Telemetria** | Sem rastreamento, sem análises, sem coleta de dados |
+| 📊 | **No Telemetry** | Sem rastreamento, sem análises, sem coleta de dados |
 | 🔓 | **Código Aberto** | Código totalmente auditável sob GPL-3.0 |
 
 ### Tecnologia de Criptografia
@@ -91,7 +91,7 @@
 | **Terminal** | xterm.js 6 | Emulação de terminal de alta performance |
 | **SSH/SFTP** | ssh2 + node-pty | Implementação nativa do protocolo SSH |
 | **Editor de Código** | CodeMirror 6 | Realce de sintaxe leve |
-| **Criptografia** | Argon2 + Node.js Crypto | Segurança de nível militar |
+| **Criptografia** | Argon2 + Node.js Crypto | Client-side encryption robusto |
 | **Estilização** | Tailwind CSS 4 | CSS moderno e minimalista |
 | **Build** | Webpack 5 + TypeScript 5 | Bundles de produção otimizados |
 
@@ -146,7 +146,7 @@
 
 ### Como a Criptografia Funciona
 
-Todos os backups usam criptografia de nível militar com **Argon2id** e **AES-256-GCM**:
+Todos os backups usam **Argon2id** e **AES-256-GCM**:
 
 <p align="center">
   <img src="flow.png" alt="Fluxo de Criptografia" width="800">
