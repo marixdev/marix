@@ -50,7 +50,6 @@ const NetworkToolsService_1 = require("./services/NetworkToolsService");
 const GitHubAuthService_1 = require("./services/GitHubAuthService");
 const KnownHostsService_1 = require("./services/KnownHostsService");
 const SSHKeyService_1 = require("./services/SSHKeyService");
-const PortForwardingService_1 = require("./services/PortForwardingService");
 let mainWindow = null;
 let tray = null;
 const nativeSSH = new NativeSSHManager_1.NativeSSHManager(); // For terminal (with MOTD)
@@ -928,7 +927,7 @@ electron_1.ipcMain.handle('github:saveRepoName', async (event, repoName) => {
     await githubAuthService.saveRepoName(repoName);
     return { success: true };
 });
-electron_1.ipcMain.handle('github:uploadBackup', async (event, password, totpEntries, portForwards) => {
+electron_1.ipcMain.handle('github:uploadBackup', async (event, password) => {
     // Validate password first (same as local backup)
     const validation = backupService.validatePassword(password);
     if (!validation.valid) {
@@ -938,8 +937,8 @@ electron_1.ipcMain.handle('github:uploadBackup', async (event, password, totpEnt
     const tagColors = serverStore.getTagColors();
     const cloudflareToken = CloudflareService_1.cloudflareService.getToken() || undefined;
     const sshKeys = SSHKeyService_1.sshKeyService.exportAllKeysForBackup();
-    // Create encrypted backup content (including 2FA and port forwards)
-    const backupResult = await backupService.createBackupContent(password, servers, tagColors, cloudflareToken, sshKeys, totpEntries, portForwards);
+    // Create encrypted backup content
+    const backupResult = await backupService.createBackupContent(password, servers, tagColors, cloudflareToken, sshKeys);
     if (!backupResult.success || !backupResult.content) {
         return { success: false, error: backupResult.error };
     }
@@ -970,13 +969,7 @@ electron_1.ipcMain.handle('github:downloadBackup', async (event, password) => {
         const importResult = await SSHKeyService_1.sshKeyService.importKeysFromBackup(restoreResult.data.sshKeys);
         sshKeyCount = importResult.imported;
     }
-    return {
-        success: true,
-        serverCount: restoreResult.data.servers.length,
-        sshKeyCount,
-        totpEntries: restoreResult.data.totpEntries,
-        portForwards: restoreResult.data.portForwards
-    };
+    return { success: true, serverCount: restoreResult.data.servers.length, sshKeyCount };
 });
 electron_1.ipcMain.handle('github:openAuthUrl', async (event, url) => {
     electron_1.shell.openExternal(url);
@@ -1263,117 +1256,45 @@ electron_1.ipcMain.handle('tools:proxyCheck', async (event, config) => {
 electron_1.ipcMain.handle('tools:portListener', async () => {
     return await NetworkToolsService_1.networkToolsService.getListeningPorts();
 });
-// Port Forwarding handlers
-PortForwardingService_1.portForwardingService.on('status', (config) => {
-    if (mainWindow) {
-        mainWindow.webContents.send('portforward:status', config);
-    }
-});
-electron_1.ipcMain.handle('portforward:create', async (event, config) => {
-    try {
-        switch (config.type) {
-            case 'local':
-                await PortForwardingService_1.portForwardingService.createLocalForward(config);
-                break;
-            case 'remote':
-                await PortForwardingService_1.portForwardingService.createRemoteForward(config);
-                break;
-            case 'dynamic':
-                await PortForwardingService_1.portForwardingService.createDynamicForward(config);
-                break;
-            default:
-                throw new Error('Invalid forward type');
-        }
-        return { success: true };
-    }
-    catch (err) {
-        return { success: false, error: err.message };
-    }
-});
-electron_1.ipcMain.handle('portforward:stop', async (event, tunnelId) => {
-    try {
-        await PortForwardingService_1.portForwardingService.stopTunnel(tunnelId);
-        return { success: true };
-    }
-    catch (err) {
-        return { success: false, error: err.message };
-    }
-});
-electron_1.ipcMain.handle('portforward:list', async () => {
-    return PortForwardingService_1.portForwardingService.getAllTunnels();
-});
-electron_1.ipcMain.handle('portforward:get', async (event, tunnelId) => {
-    return PortForwardingService_1.portForwardingService.getTunnel(tunnelId);
-});
 // Check for updates from GitHub
 electron_1.ipcMain.handle('app:checkForUpdates', async () => {
     try {
         const https = require('https');
         return new Promise((resolve) => {
-            // First try releases, then fall back to tags
-            const tryFetch = (path, isRelease) => {
-                const options = {
-                    hostname: 'api.github.com',
-                    path,
-                    headers: {
-                        'User-Agent': 'Marix-SSH-Client',
-                        'Accept': 'application/vnd.github.v3+json'
-                    }
-                };
-                https.get(options, (res) => {
-                    let data = '';
-                    res.on('data', (chunk) => data += chunk);
-                    res.on('end', () => {
-                        try {
-                            if (res.statusCode === 200) {
-                                const result = JSON.parse(data);
-                                if (isRelease) {
-                                    resolve({
-                                        success: true,
-                                        latestVersion: result.tag_name?.replace('v', '') || result.name,
-                                        releaseUrl: result.html_url,
-                                        publishedAt: result.published_at,
-                                        releaseNotes: result.body
-                                    });
-                                }
-                                else {
-                                    // Tags endpoint returns array
-                                    if (Array.isArray(result) && result.length > 0) {
-                                        const latestTag = result[0];
-                                        resolve({
-                                            success: true,
-                                            latestVersion: latestTag.name?.replace('v', '') || latestTag.ref?.split('/').pop()?.replace('v', ''),
-                                            releaseUrl: `https://github.com/marixdev/marix/releases/tag/${latestTag.name}`,
-                                            publishedAt: null,
-                                            releaseNotes: null
-                                        });
-                                    }
-                                    else {
-                                        resolve({ success: false, error: 'No releases or tags found' });
-                                    }
-                                }
-                            }
-                            else if (res.statusCode === 404 && isRelease) {
-                                // No releases found, try tags
-                                tryFetch('/repos/marixdev/marix/tags', false);
-                            }
-                            else {
-                                console.log('[Update] GitHub API response:', res.statusCode, data);
-                                resolve({ success: false, error: `GitHub API error: ${res.statusCode}` });
-                            }
-                        }
-                        catch (e) {
-                            console.error('[Update] Parse error:', e);
-                            resolve({ success: false, error: 'Failed to parse response' });
-                        }
-                    });
-                }).on('error', (err) => {
-                    console.error('[Update] Request error:', err);
-                    resolve({ success: false, error: err.message });
-                });
+            const options = {
+                hostname: 'api.github.com',
+                path: '/repos/datvuong166/marix/releases/latest',
+                headers: {
+                    'User-Agent': 'Marix-SSH-Client',
+                    'Accept': 'application/vnd.github.v3+json'
+                }
             };
-            // Start with releases endpoint
-            tryFetch('/repos/marixdev/marix/releases/latest', true);
+            https.get(options, (res) => {
+                let data = '';
+                res.on('data', (chunk) => data += chunk);
+                res.on('end', () => {
+                    try {
+                        if (res.statusCode === 200) {
+                            const release = JSON.parse(data);
+                            resolve({
+                                success: true,
+                                latestVersion: release.tag_name?.replace('v', '') || release.name,
+                                releaseUrl: release.html_url,
+                                publishedAt: release.published_at,
+                                releaseNotes: release.body
+                            });
+                        }
+                        else {
+                            resolve({ success: false, error: 'Could not fetch release info' });
+                        }
+                    }
+                    catch (e) {
+                        resolve({ success: false, error: 'Failed to parse response' });
+                    }
+                });
+            }).on('error', (err) => {
+                resolve({ success: false, error: err.message });
+            });
         });
     }
     catch (error) {

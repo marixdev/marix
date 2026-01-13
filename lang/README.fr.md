@@ -31,15 +31,15 @@
 
 ---
 
-## ⚠️ Disclaimer
+## ⚠️ Avertissement
 
-> **You are responsible for your own data.**
+> **VOUS ÊTES RESPONSABLE DE VOS PROPRES DONNÉES.**
 >
-> Marix stores all data locally with strong encryption. However:
-> - Password lost = **data unrecoverable**
-> - **No servers** — no "forgot password" option
-> - **Backup regularly** — hardware can fail
-> - You own your security
+> Marix stocke toutes les données localement sur votre appareil avec un chiffrement fort. Cependant :
+> - **Nous ne pouvons pas récupérer vos données** si vous perdez votre mot de passe de sauvegarde
+> - **Nous n'avons pas de serveurs** — pas d'option "mot de passe oublié"
+> - **Sauvegardez régulièrement** — le matériel peut tomber en panne
+> - **Vous possédez votre sécurité** — nous fournissons les outils, vous prenez les décisions
 
 ---
 
@@ -51,7 +51,7 @@
 |---|----------|-------------|
 | 🔐 | **100% Hors Ligne** | Tous les identifiants stockés localement—jamais téléversés |
 | ☁️ | **Pas de Cloud** | Nous n'avons pas de serveurs. Vos données ne touchent jamais Internet |
-| 📊 | **No Telemetry** | Pas de suivi, pas d'analyse, pas de collecte de données |
+| 📊 | **Pas de Télémétrie** | Pas de suivi, pas d'analyse, pas de collecte de données |
 | 🔓 | **Open Source** | Code entièrement auditable sous GPL-3.0 |
 
 ### Technologie de Chiffrement
@@ -91,7 +91,7 @@
 | **Terminal** | xterm.js 6 | Émulation de terminal haute performance |
 | **SSH/SFTP** | ssh2 + node-pty | Implémentation native du protocole SSH |
 | **Éditeur de Code** | CodeMirror 6 | Coloration syntaxique légère |
-| **Chiffrement** | Argon2 + Node.js Crypto | Client-side encryption robuste |
+| **Chiffrement** | Argon2 + Node.js Crypto | Sécurité de niveau militaire |
 | **Style** | Tailwind CSS 4 | CSS moderne et minimal |
 | **Build** | Webpack 5 + TypeScript 5 | Bundles de production optimisés |
 
@@ -146,7 +146,7 @@
 
 ### Comment Fonctionne le Chiffrement
 
-Toutes les sauvegardes utilisent **Argon2id** et **AES-256-GCM** :
+Toutes les sauvegardes utilisent un chiffrement de niveau militaire avec **Argon2id** et **AES-256-GCM** :
 
 <p align="center">
   <img src="flow.png" alt="Flux de Chiffrement" width="800">

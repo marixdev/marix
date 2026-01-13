@@ -15,7 +15,6 @@ import { networkToolsService } from './services/NetworkToolsService';
 import { GitHubAuthService } from './services/GitHubAuthService';
 import { knownHostsService } from './services/KnownHostsService';
 import { sshKeyService } from './services/SSHKeyService';
-import { portForwardingService } from './services/PortForwardingService';
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
@@ -958,7 +957,7 @@ ipcMain.handle('github:saveRepoName', async (event, repoName: string) => {
   return { success: true };
 });
 
-ipcMain.handle('github:uploadBackup', async (event, password: string, totpEntries?: any[], portForwards?: any[]) => {
+ipcMain.handle('github:uploadBackup', async (event, password: string) => {
   // Validate password first (same as local backup)
   const validation = backupService.validatePassword(password);
   if (!validation.valid) {
@@ -970,8 +969,8 @@ ipcMain.handle('github:uploadBackup', async (event, password: string, totpEntrie
   const cloudflareToken = cloudflareService.getToken() || undefined;
   const sshKeys = sshKeyService.exportAllKeysForBackup();
   
-  // Create encrypted backup content (including 2FA and port forwards)
-  const backupResult = await backupService.createBackupContent(password, servers, tagColors, cloudflareToken, sshKeys, totpEntries, portForwards);
+  // Create encrypted backup content
+  const backupResult = await backupService.createBackupContent(password, servers, tagColors, cloudflareToken, sshKeys);
   if (!backupResult.success || !backupResult.content) {
     return { success: false, error: backupResult.error };
   }
@@ -1008,13 +1007,7 @@ ipcMain.handle('github:downloadBackup', async (event, password: string) => {
     sshKeyCount = importResult.imported;
   }
   
-  return { 
-    success: true, 
-    serverCount: restoreResult.data.servers.length, 
-    sshKeyCount,
-    totpEntries: restoreResult.data.totpEntries,
-    portForwards: restoreResult.data.portForwards
-  };
+  return { success: true, serverCount: restoreResult.data.servers.length, sshKeyCount };
 });
 
 ipcMain.handle('github:openAuthUrl', async (event, url: string) => {
@@ -1383,117 +1376,44 @@ ipcMain.handle('tools:portListener', async () => {
   return await networkToolsService.getListeningPorts();
 });
 
-// Port Forwarding handlers
-portForwardingService.on('status', (config: any) => {
-  if (mainWindow) {
-    mainWindow.webContents.send('portforward:status', config);
-  }
-});
-
-ipcMain.handle('portforward:create', async (event, config: any) => {
-  try {
-    switch (config.type) {
-      case 'local':
-        await portForwardingService.createLocalForward(config);
-        break;
-      case 'remote':
-        await portForwardingService.createRemoteForward(config);
-        break;
-      case 'dynamic':
-        await portForwardingService.createDynamicForward(config);
-        break;
-      default:
-        throw new Error('Invalid forward type');
-    }
-    return { success: true };
-  } catch (err: any) {
-    return { success: false, error: err.message };
-  }
-});
-
-ipcMain.handle('portforward:stop', async (event, tunnelId: string) => {
-  try {
-    await portForwardingService.stopTunnel(tunnelId);
-    return { success: true };
-  } catch (err: any) {
-    return { success: false, error: err.message };
-  }
-});
-
-ipcMain.handle('portforward:list', async () => {
-  return portForwardingService.getAllTunnels();
-});
-
-ipcMain.handle('portforward:get', async (event, tunnelId: string) => {
-  return portForwardingService.getTunnel(tunnelId);
-});
-
 // Check for updates from GitHub
 ipcMain.handle('app:checkForUpdates', async () => {
   try {
     const https = require('https');
     return new Promise((resolve) => {
-      // First try releases, then fall back to tags
-      const tryFetch = (path: string, isRelease: boolean) => {
-        const options = {
-          hostname: 'api.github.com',
-          path,
-          headers: {
-            'User-Agent': 'Marix-SSH-Client',
-            'Accept': 'application/vnd.github.v3+json'
-          }
-        };
-        
-        https.get(options, (res: any) => {
-          let data = '';
-          res.on('data', (chunk: string) => data += chunk);
-          res.on('end', () => {
-            try {
-              if (res.statusCode === 200) {
-                const result = JSON.parse(data);
-                if (isRelease) {
-                  resolve({
-                    success: true,
-                    latestVersion: result.tag_name?.replace('v', '') || result.name,
-                    releaseUrl: result.html_url,
-                    publishedAt: result.published_at,
-                    releaseNotes: result.body
-                  });
-                } else {
-                  // Tags endpoint returns array
-                  if (Array.isArray(result) && result.length > 0) {
-                    const latestTag = result[0];
-                    resolve({
-                      success: true,
-                      latestVersion: latestTag.name?.replace('v', '') || latestTag.ref?.split('/').pop()?.replace('v', ''),
-                      releaseUrl: `https://github.com/marixdev/marix/releases/tag/${latestTag.name}`,
-                      publishedAt: null,
-                      releaseNotes: null
-                    });
-                  } else {
-                    resolve({ success: false, error: 'No releases or tags found' });
-                  }
-                }
-              } else if (res.statusCode === 404 && isRelease) {
-                // No releases found, try tags
-                tryFetch('/repos/marixdev/marix/tags', false);
-              } else {
-                console.log('[Update] GitHub API response:', res.statusCode, data);
-                resolve({ success: false, error: `GitHub API error: ${res.statusCode}` });
-              }
-            } catch (e: any) {
-              console.error('[Update] Parse error:', e);
-              resolve({ success: false, error: 'Failed to parse response' });
-            }
-          });
-        }).on('error', (err: any) => {
-          console.error('[Update] Request error:', err);
-          resolve({ success: false, error: err.message });
-        });
+      const options = {
+        hostname: 'api.github.com',
+        path: '/repos/datvuong166/marix/releases/latest',
+        headers: {
+          'User-Agent': 'Marix-SSH-Client',
+          'Accept': 'application/vnd.github.v3+json'
+        }
       };
       
-      // Start with releases endpoint
-      tryFetch('/repos/marixdev/marix/releases/latest', true);
+      https.get(options, (res: any) => {
+        let data = '';
+        res.on('data', (chunk: string) => data += chunk);
+        res.on('end', () => {
+          try {
+            if (res.statusCode === 200) {
+              const release = JSON.parse(data);
+              resolve({
+                success: true,
+                latestVersion: release.tag_name?.replace('v', '') || release.name,
+                releaseUrl: release.html_url,
+                publishedAt: release.published_at,
+                releaseNotes: release.body
+              });
+            } else {
+              resolve({ success: false, error: 'Could not fetch release info' });
+            }
+          } catch (e) {
+            resolve({ success: false, error: 'Failed to parse response' });
+          }
+        });
+      }).on('error', (err: any) => {
+        resolve({ success: false, error: err.message });
+      });
     });
   } catch (error: any) {
     return { success: false, error: error.message };

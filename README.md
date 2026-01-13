@@ -118,7 +118,7 @@ The app automatically detects your system RAM and adjusts encryption parameters 
 | **Terminal** | xterm.js 6 | High-performance terminal emulation |
 | **SSH/SFTP** | ssh2 + node-pty | Native SSH protocol implementation |
 | **Code Editor** | CodeMirror 6 | Lightweight syntax highlighting |
-| **Encryption** | Argon2 + Node.js Crypto | Strong client-side encryption |
+| **Encryption** | Argon2 + Node.js Crypto | Military-grade security |
 | **Styling** | Tailwind CSS 4 | Modern, minimal CSS |
 | **Build** | Webpack 5 + TypeScript 5 | Optimized production bundles |
 
@@ -245,7 +245,7 @@ The app automatically detects your system RAM and adjusts encryption parameters 
 
 ### How Encryption Works
 
-All backups use **Argon2id** (winner of the Password Hashing Competition) and **AES-256-GCM** (authenticated encryption):
+All backups use military-grade encryption with **Argon2id** (winner of the Password Hashing Competition) and **AES-256-GCM** (authenticated encryption):
 
 <p align="center">
   <img src="lang/flow.png" alt="Encryption Flow" width="800">

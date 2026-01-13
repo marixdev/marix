@@ -287,17 +287,15 @@ class BackupService {
     /**
      * Create encrypted backup content for GitHub repo upload
      */
-    async createBackupContent(password, servers, tagColors, cloudflareToken, sshKeys, totpEntries, portForwards) {
+    async createBackupContent(password, servers, tagColors, cloudflareToken, sshKeys) {
         try {
             const backupData = {
-                version: '2.1.0',
+                version: '2.0.0',
                 timestamp: Date.now(),
                 servers,
                 tagColors,
                 cloudflareToken,
                 sshKeys,
-                totpEntries,
-                portForwards,
             };
             const encryptedContent = await this.encrypt(backupData, password);
             return { success: true, content: JSON.stringify(encryptedContent) };

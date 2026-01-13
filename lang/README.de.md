@@ -31,15 +31,15 @@
 
 ---
 
-## ⚠️ Disclaimer
+## ⚠️ Haftungsausschluss
 
-> **Sie sind für Ihre Daten verantwortlich.**
+> **SIE SIND FÜR IHRE EIGENEN DATEN VERANTWORTLICH.**
 >
-> Marix speichert alle Daten lokal mit starker Verschlüsselung. Jedoch:
-> - Passwort verloren = **Daten nicht wiederherstellbar**
-> - **Keine Server** — keine "Passwort vergessen"-Option
-> - **Regelmäßig sichern** — Hardware kann ausfallen
-> - Sie kontrollieren Ihre Sicherheit
+> Marix speichert alle Daten lokal auf Ihrem Gerät mit starker Verschlüsselung. Jedoch:
+> - **Wir können Ihre Daten nicht wiederherstellen**, wenn Sie Ihr Backup-Passwort verlieren
+> - **Wir haben keine Server** — keine "Passwort vergessen"-Option
+> - **Sichern Sie regelmäßig** — Hardware kann ausfallen
+> - **Sie besitzen Ihre Sicherheit** — wir stellen die Werkzeuge bereit, Sie treffen die Entscheidungen
 
 ---
 
@@ -51,7 +51,7 @@
 |---|---------|--------------|
 | 🔐 | **100% Offline** | Alle Anmeldedaten lokal gespeichert—nie hochgeladen |
 | ☁️ | **Keine Cloud** | Wir haben keine Server. Ihre Daten berühren nie das Internet |
-| 📊 | **No Telemetry** | Kein Tracking, keine Analyse, keine Datenerfassung |
+| 📊 | **Keine Telemetrie** | Kein Tracking, keine Analyse, keine Datenerfassung |
 | 🔓 | **Open Source** | Vollständig auditierbarer Code unter GPL-3.0 |
 
 ### Verschlüsselungstechnologie
@@ -91,7 +91,7 @@
 | **Terminal** | xterm.js 6 | Hochleistungs-Terminal-Emulation |
 | **SSH/SFTP** | ssh2 + node-pty | Native SSH-Protokoll-Implementierung |
 | **Code-Editor** | CodeMirror 6 | Leichtes Syntax-Highlighting |
-| **Verschlüsselung** | Argon2 + Node.js Crypto | Starke client-side encryption |
+| **Verschlüsselung** | Argon2 + Node.js Crypto | Sicherheit auf Militärniveau |
 | **Styling** | Tailwind CSS 4 | Modernes, minimales CSS |
 | **Build** | Webpack 5 + TypeScript 5 | Optimierte Produktions-Bundles |
 
@@ -146,7 +146,7 @@
 
 ### Wie Verschlüsselung funktioniert
 
-Alle Backups verwenden **Argon2id** und **AES-256-GCM**:
+Alle Backups verwenden militärische Verschlüsselung mit **Argon2id** und **AES-256-GCM**:
 
 <p align="center">
   <img src="flow.png" alt="Verschlüsselungsfluss" width="800">

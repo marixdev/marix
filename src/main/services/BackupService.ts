@@ -71,8 +71,6 @@ export interface BackupData {
   };
   cloudflareToken?: string; // Encrypted in backup
   sshKeys?: SSHKeyBackup[]; // SSH keys from keychain
-  totpEntries?: any[]; // 2FA TOTP entries
-  portForwards?: any[]; // Port forwarding configurations
 }
 
 export interface EncryptedBackup {
@@ -337,20 +335,16 @@ export class BackupService {
     servers: any[],
     tagColors: { [key: string]: string },
     cloudflareToken?: string,
-    sshKeys?: SSHKeyBackup[],
-    totpEntries?: any[],
-    portForwards?: any[]
+    sshKeys?: SSHKeyBackup[]
   ): Promise<{ success: boolean; content?: string; error?: string }> {
     try {
       const backupData: BackupData = {
-        version: '2.1.0',
+        version: '2.0.0',
         timestamp: Date.now(),
         servers,
         tagColors,
         cloudflareToken,
         sshKeys,
-        totpEntries,
-        portForwards,
       };
 
       const encryptedContent = await this.encrypt(backupData, password);

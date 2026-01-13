@@ -31,15 +31,15 @@
 
 ---
 
-## ⚠️ Disclaimer
+## ⚠️ Penafian
 
-> **You are responsible for your own data.**
+> **ANDA BERTANGGUNG JAWAB ATAS DATA ANDA SENDIRI.**
 >
-> Marix menyimpan semua data secara local dengan encryption kuat. Namun:
-> - Password hilang = **data tidak dapat dipulihkan**
-> - **Tidak ada server** — tidak ada opsi "lupa password"
-> - **Backup secara teratur** — hardware bisa rusak
-> - Anda memiliki security Anda sendiri
+> Marix menyimpan semua data secara lokal di perangkat Anda dengan enkripsi kuat. Namun:
+> - **Kami tidak dapat memulihkan data Anda** jika Anda kehilangan kata sandi backup
+> - **Kami tidak memiliki server** — tidak ada opsi "lupa kata sandi"
+> - **Backup secara teratur** — perangkat keras bisa rusak
+> - **Anda memiliki keamanan Anda** — kami menyediakan alat, Anda membuat keputusan
 
 ---
 
@@ -51,7 +51,7 @@
 |---|---------|-----------|
 | 🔐 | **100% Offline** | Semua kredensial disimpan lokal—tidak pernah diunggah |
 | ☁️ | **Tanpa Cloud** | Kami tidak memiliki server. Data tidak pernah menyentuh internet |
-| 📊 | **No Telemetry** | Tanpa pelacakan, tanpa analitik, tanpa pengumpulan data |
+| 📊 | **Tanpa Telemetri** | Tanpa pelacakan, tanpa analitik, tanpa pengumpulan data |
 | 🔓 | **Open Source** | Kode yang sepenuhnya dapat diaudit di bawah GPL-3.0 |
 
 ### Teknologi Enkripsi
@@ -91,7 +91,7 @@
 | **Terminal** | xterm.js 6 | Emulasi terminal performa tinggi |
 | **SSH/SFTP** | ssh2 + node-pty | Implementasi protokol SSH native |
 | **Code Editor** | CodeMirror 6 | Syntax highlighting ringan |
-| **Enkripsi** | Argon2 + Node.js Crypto | Client-side encryption yang kuat |
+| **Enkripsi** | Argon2 + Node.js Crypto | Keamanan tingkat militer |
 | **Styling** | Tailwind CSS 4 | CSS modern dan minimal |
 | **Build** | Webpack 5 + TypeScript 5 | Bundle produksi teroptimasi |
 
@@ -146,7 +146,7 @@
 
 ### Cara Enkripsi Bekerja
 
-Semua backup menggunakan **Argon2id** dan **AES-256-GCM**:
+Semua backup menggunakan enkripsi tingkat militer dengan **Argon2id** dan **AES-256-GCM**:
 
 <p align="center">
   <img src="flow.png" alt="Alur Enkripsi" width="800">
