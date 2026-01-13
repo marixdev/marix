@@ -39,6 +39,7 @@ jobs:
           path: |
             release/*.AppImage
             release/*.deb
+            release/*.rpm
           retention-days: 5
 
   build-windows:
