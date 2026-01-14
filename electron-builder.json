@@ -28,7 +28,7 @@
       }
     ],
     "category": "Network",
-    "maintainer": "datvuong166",
+    "maintainer": "marixdev",
     "synopsis": "Modern SSH/SFTP/FTP Client",
     "description": "Marix - Modern Zero-Knowledge SSH Client with SFTP, FTP, RDP, WSS support"
   },
@@ -52,10 +52,6 @@
     "icon": "icon/icon.icns",
     "target": [
       {
-        "target": "dmg",
-        "arch": ["x64", "arm64"]
-      },
-      {
         "target": "zip",
         "arch": ["x64", "arm64"]
       }
@@ -63,21 +59,6 @@
     "category": "public.app-category.developer-tools",
     "hardenedRuntime": false,
     "gatekeeperAssess": false
-  },
-  "dmg": {
-    "title": "Marix ${version}",
-    "contents": [
-      {
-        "x": 130,
-        "y": 220
-      },
-      {
-        "x": 410,
-        "y": 220,
-        "type": "link",
-        "path": "/Applications"
-      }
-    ]
   },
   "publish": {
     "provider": "github",
