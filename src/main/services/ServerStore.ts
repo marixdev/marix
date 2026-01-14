@@ -12,6 +12,8 @@ export interface ServerConfig {
   tags?: string[];
   createdAt: number;
   lastConnected?: number;
+  knockEnabled?: boolean;
+  knockSequence?: number[];
 }
 
 interface StoreSchema {

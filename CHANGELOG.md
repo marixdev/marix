@@ -2,6 +2,61 @@
 
 All notable changes to Marix SSH Client will be documented in this file.
 
+## [1.0.2] - 2026-01-14
+
+### Added
+- **Box.net Cloud Backup**: New cloud backup option with OAuth authentication
+  - OAuth PKCE flow for secure authentication
+  - Encrypted backup storage on Box.net
+  - Upload/download backup files
+  - Integration with existing backup modal (4th tab)
+  - Password-protected with Argon2id encryption
+
+- **Port Knocking Security**: Advanced SSH security feature
+  - TCP SYN packet sequence for pre-authentication
+  - Configurable knock sequence (3+ ports)
+  - Random sequence generator (7000-9999 range)
+  - Auto-knock before SSH connection
+  - Server-side setup guide modal
+  - Comprehensive documentation included
+
+- **Port Knocking Setup Guide Modal**: Interactive in-app guide
+  - Security benefits explanation
+  - Step-by-step server configuration
+  - iptables/firewalld setup instructions
+  - Best practices and warnings
+  - Supports all 13 languages
+
+### Changed
+- Improved Port Knocking translations for better clarity
+  - Vietnamese: Changed "Gõ cửa Port" to "Port Knocking" (technical term)
+  - Chinese: Changed "端口敲门" to "端口敲击" (more standard)
+  - Russian: Changed "Стук в порт" to "Port Knocking" (international term)
+  - Thai: Improved technical accuracy
+  - Portuguese, Spanish, French, German: Enhanced descriptions
+
+- Enhanced "Learn More" button behavior
+  - Opens modal directly without validation alerts
+  - Added type="button" to prevent form submission
+  - Improved user experience
+
+### Fixed
+- Fixed "Learn More" button triggering port validation before opening guide
+- Fixed Chinese translation JSON syntax error (quote escaping)
+
+### Translations
+- Added 60+ translation keys for Port Knocking Guide in all 13 languages:
+  - English, Vietnamese, Chinese, Japanese, Korean
+  - Thai, Indonesian, Malay, Filipino
+  - Portuguese, Spanish, French, German, Russian
+
+### Security
+- Port Knocking provides additional security layer before SSH authentication
+- Zero-knowledge encryption for Box.net backups (Argon2id)
+- Stealth mode: SSH port hidden from port scanners
+
+---
+
 ## [1.0.1] - 2026-01-13
 
 ### Added

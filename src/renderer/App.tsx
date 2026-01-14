@@ -13,6 +13,7 @@ import SSHKeyManager from './components/SSHKeyManager';
 import KnownHostsPage from './components/KnownHostsPage';
 import TwoFactorPage from './components/TwoFactorPage';
 import PortForwardingPage from './components/PortForwardingPage';
+import { BackupModal } from './components/BackupModal';
 import { useTerminalContext } from './contexts/TerminalContext';
 import { useLanguage } from './contexts/LanguageContext';
 
@@ -31,6 +32,8 @@ export interface Server {
   domain?: string;  // Windows domain for RDP
   wssUrl?: string;  // WebSocket URL for WSS connections
   tags?: string[];  // Tags for organizing servers
+  knockEnabled?: boolean;  // Enable port knocking
+  knockSequence?: number[];  // Port sequence for knocking (e.g., [7000, 8000, 9000])
 }
 
 export interface Session {
@@ -68,11 +71,22 @@ const App: React.FC = () => {
   const [quickConnectOpen, setQuickConnectOpen] = useState(false);  // Quick connect dropdown
   const [quickConnectSearch, setQuickConnectSearch] = useState('');  // Quick connect search
   const [backupModalOpen, setBackupModalOpen] = useState<'create' | 'restore' | null>(null);  // Backup modal
+  const [backupMethod, setBackupMethod] = useState<'local' | 'github' | 'gitlab' | 'box'>('local');  // Backup method
   const [backupPassword, setBackupPassword] = useState('');  // Backup password
   const [backupConfirmPassword, setBackupConfirmPassword] = useState('');  // Confirm password
   const [backupError, setBackupError] = useState<string | null>(null);  // Backup error
   const [backupLoading, setBackupLoading] = useState(false);  // Backup loading
   const [backupSuccess, setBackupSuccess] = useState<string | null>(null);  // Success message
+  
+  // GitLab backup state
+  const [gitlabConnected, setGitlabConnected] = useState(false);
+  const [gitlabConnecting, setGitlabConnecting] = useState(false);
+  const [gitlabBackupInfo, setGitlabBackupInfo] = useState<{ exists: boolean; metadata?: any } | null>(null);
+  
+  // Box backup state
+  const [boxConnected, setBoxConnected] = useState(false);
+  const [boxConnecting, setBoxConnecting] = useState(false);
+  const [boxBackupInfo, setBoxBackupInfo] = useState<{ exists: boolean; metadata?: any } | null>(null);
   
   // Cloudflare state
   const [cfHasToken, setCfHasToken] = useState(false);
@@ -140,7 +154,7 @@ const App: React.FC = () => {
     hasUpdate?: boolean;
   }>({ checking: false });
   const [showUpdateNotification, setShowUpdateNotification] = useState(false);
-  const APP_VERSION = '1.0.1';
+  const APP_VERSION = '1.0.2';
   const APP_AUTHOR = 'Đạt Vũ (Marix)';
   const GITHUB_REPO = 'https://github.com/marixdev/marix';
   
@@ -244,6 +258,60 @@ const App: React.FC = () => {
       document.body.classList.remove('light-theme');
     }
   }, [appTheme]);
+
+  // Check GitLab/Box connection when backup modal opens
+  useEffect(() => {
+    if (backupModalOpen && backupMethod === 'gitlab') {
+      checkGitLabConnection();
+    } else if (backupModalOpen && backupMethod === 'box') {
+      checkBoxConnection();
+    }
+  }, [backupModalOpen, backupMethod]);
+
+  const checkGitLabConnection = async () => {
+    try {
+      const result = await ipcRenderer.invoke('gitlab:hasToken');
+      setGitlabConnected(result.hasToken);
+      
+      if (result.hasToken) {
+        // Check if backup exists
+        const backupCheck = await ipcRenderer.invoke('gitlab:checkBackup');
+        setGitlabBackupInfo(backupCheck);
+      }
+    } catch (err) {
+      console.error('Failed to check GitLab connection:', err);
+      setGitlabConnected(false);
+    }
+  };
+
+  const checkBoxConnection = async () => {
+    try {
+      const result = await ipcRenderer.invoke('box:hasToken');
+      setBoxConnected(result.hasToken);
+      
+      if (result.hasToken) {
+        // Check if backup exists
+        const backupCheck = await ipcRenderer.invoke('box:checkBackup');
+        setBoxBackupInfo(backupCheck);
+      }
+    } catch (err) {
+      console.error('Failed to check Box connection:', err);
+      setBoxConnected(false);
+    }
+  };
+
+  // Load servers from storage
+  const loadServers = async () => {
+    try {
+      const result = await ipcRenderer.invoke('servers:getAll');
+      if (result.success && result.servers) {
+        setServers(result.servers);
+        console.log('[App] Loaded', result.servers.length, 'servers from storage');
+      }
+    } catch (err) {
+      console.error('[App] Failed to load servers:', err);
+    }
+  };
 
   // Toggle app theme
   const toggleAppTheme = () => {
@@ -435,6 +503,325 @@ const App: React.FC = () => {
     setBackupConfirmPassword('');
     setBackupError(null);
     setBackupSuccess(null);
+    setBackupMethod('local');
+  };
+
+  // GitLab backup functions
+  const handleGitLabConnect = async () => {
+    setGitlabConnecting(true);
+    setBackupError(null);
+    try {
+      const result = await ipcRenderer.invoke('gitlab:startOAuth');
+      if (result.success) {
+        setGitlabConnected(true);
+        await checkGitLabConnection();
+      } else {
+        // If OAuth flow fails or times out, prompt for manual code
+        if (result.error?.includes('timed out')) {
+          const url = prompt(
+            'GitLab OAuth\n\n' +
+            'If the browser redirected to a URL starting with "marix://oauth/gitlab?code=...",\n' +
+            'please paste the FULL URL here:\n\n' +
+            '(Or just paste the code if you can extract it)'
+          );
+          
+          if (url) {
+            // Try to extract code from URL or use as-is
+            let code = url;
+            if (url.includes('marix://oauth/gitlab?code=')) {
+              const match = url.match(/code=([^&]+)/);
+              if (match) code = match[1];
+            }
+            
+            // Submit the code
+            const codeResult = await ipcRenderer.invoke('gitlab:submitCode', code);
+            if (codeResult.success) {
+              setGitlabConnected(true);
+              await checkGitLabConnection();
+            } else {
+              setBackupError('Invalid code or code submission failed');
+            }
+          }
+        } else {
+          setBackupError(result.error || 'Failed to connect to GitLab');
+        }
+      }
+    } catch (err: any) {
+      setBackupError(err.message || 'Failed to connect to GitLab');
+    }
+    setGitlabConnecting(false);
+  };
+
+  const handleGitLabDisconnect = async () => {
+    try {
+      await ipcRenderer.invoke('gitlab:logout');
+      setGitlabConnected(false);
+      setGitlabBackupInfo(null);
+    } catch (err: any) {
+      setBackupError(err.message);
+    }
+  };
+
+  const handleGitLabBackup = async () => {
+    if (!backupPassword) {
+      setBackupError('Please enter a password');
+      return;
+    }
+    
+    // Validate password strength
+    const validation = await ipcRenderer.invoke('backup:validatePassword', backupPassword);
+    if (!validation.valid) {
+      setBackupError(validation.errors.join('\n'));
+      return;
+    }
+    
+    if (backupPassword !== backupConfirmPassword) {
+      setBackupError('Passwords do not match');
+      return;
+    }
+
+    setBackupLoading(true);
+    setBackupError(null);
+
+    try {
+      // Get TOTP entries and port forwards to include in backup
+      const totpEntriesStr = localStorage.getItem('totp_entries');
+      const totpEntries = totpEntriesStr ? JSON.parse(totpEntriesStr) : [];
+      
+      const portForwardsStr = localStorage.getItem('port_forwards');
+      const portForwards = portForwardsStr ? JSON.parse(portForwardsStr) : [];
+
+      const result = await ipcRenderer.invoke('gitlab:uploadBackup', backupPassword, totpEntries, portForwards);
+      
+      if (result.success) {
+        setBackupSuccess('Backup uploaded to GitLab successfully!');
+        setBackupPassword('');
+        setBackupConfirmPassword('');
+        await checkGitLabConnection(); // Refresh backup info
+        setTimeout(() => {
+          setBackupModalOpen(null);
+          setBackupSuccess(null);
+        }, 2000);
+      } else {
+        setBackupError(result.error || 'Failed to upload backup');
+      }
+    } catch (err: any) {
+      setBackupError(err.message);
+    }
+    setBackupLoading(false);
+  };
+
+  const handleGitLabRestore = async () => {
+    if (!backupPassword) {
+      setBackupError('Please enter a password');
+      return;
+    }
+
+    setBackupLoading(true);
+    setBackupError(null);
+
+    try {
+      const result = await ipcRenderer.invoke('gitlab:downloadBackup', backupPassword);
+      
+      if (result.success) {
+        // Reload servers and tags
+        await loadServers();
+        
+        // Restore 2FA TOTP entries if present
+        let totpCount = 0;
+        if (result.totpEntries && result.totpEntries.length > 0) {
+          localStorage.setItem('totp_entries', JSON.stringify(result.totpEntries));
+          totpCount = result.totpEntries.length;
+        }
+        
+        // Restore Port Forwards if present
+        let portForwardCount = 0;
+        if (result.portForwards && result.portForwards.length > 0) {
+          localStorage.setItem('port_forwards', JSON.stringify(result.portForwards));
+          portForwardCount = result.portForwards.length;
+        }
+        
+        const serverCount = result.serverCount || 0;
+        const sshKeyCount = result.sshKeyCount || 0;
+        
+        let successMessage = `Backup restored from GitLab!\n${serverCount} servers`;
+        if (sshKeyCount > 0) successMessage += `, ${sshKeyCount} SSH keys`;
+        if (totpCount > 0) successMessage += `, ${totpCount} 2FA entries`;
+        if (portForwardCount > 0) successMessage += `, ${portForwardCount} port forwards`;
+        successMessage += ' imported.';
+        
+        setBackupSuccess(successMessage);
+        setBackupPassword('');
+        setTimeout(() => {
+          setBackupModalOpen(null);
+          setBackupSuccess(null);
+        }, 2000);
+      } else {
+        setBackupError(result.error || 'Failed to restore backup from GitLab');
+      }
+    } catch (err: any) {
+      setBackupError(err.message);
+    }
+    setBackupLoading(false);
+  };
+
+  // Box OAuth functions
+  const handleBoxConnect = async () => {
+    setBoxConnecting(true);
+    setBackupError(null);
+    try {
+      const result = await ipcRenderer.invoke('box:startOAuth');
+      if (result.success) {
+        setBoxConnected(true);
+        await checkBoxConnection();
+      } else {
+        // If OAuth flow fails or times out, prompt for manual code
+        if (result.error?.includes('timed out')) {
+          const url = prompt(
+            'Box OAuth\n\n' +
+            'If the browser redirected to a URL starting with "marix://oauth/box?code=...",\n' +
+            'please paste the FULL URL here:\n\n' +
+            '(Or just paste the code if you can extract it)'
+          );
+          
+          if (url) {
+            // Try to extract code from URL or use as-is
+            let code = url;
+            if (url.includes('marix://oauth/box?code=') || url.includes('code=')) {
+              const match = url.match(/code=([^&]+)/);
+              if (match) code = match[1];
+            }
+            
+            // Submit the code
+            const codeResult = await ipcRenderer.invoke('box:submitCode', code);
+            if (codeResult.success) {
+              setBoxConnected(true);
+              await checkBoxConnection();
+            } else {
+              setBackupError('Invalid code or code submission failed');
+            }
+          }
+        } else {
+          setBackupError(result.error || 'Failed to connect to Box');
+        }
+      }
+    } catch (err: any) {
+      setBackupError(err.message || 'Failed to connect to Box');
+    }
+    setBoxConnecting(false);
+  };
+
+  const handleBoxDisconnect = async () => {
+    try {
+      await ipcRenderer.invoke('box:logout');
+      setBoxConnected(false);
+      setBoxBackupInfo(null);
+    } catch (err: any) {
+      setBackupError(err.message);
+    }
+  };
+
+  const handleBoxBackup = async () => {
+    if (!backupPassword) {
+      setBackupError('Please enter a password');
+      return;
+    }
+    
+    // Validate password strength
+    const validation = await ipcRenderer.invoke('backup:validatePassword', backupPassword);
+    if (!validation.valid) {
+      setBackupError(validation.errors.join('\n'));
+      return;
+    }
+    
+    if (backupPassword !== backupConfirmPassword) {
+      setBackupError('Passwords do not match');
+      return;
+    }
+
+    setBackupLoading(true);
+    setBackupError(null);
+
+    try {
+      // Get TOTP entries and port forwards to include in backup
+      const totpEntriesStr = localStorage.getItem('totp_entries');
+      const totpEntries = totpEntriesStr ? JSON.parse(totpEntriesStr) : [];
+      
+      const portForwardsStr = localStorage.getItem('port_forwards');
+      const portForwards = portForwardsStr ? JSON.parse(portForwardsStr) : [];
+
+      const result = await ipcRenderer.invoke('box:uploadBackup', backupPassword, totpEntries, portForwards);
+      
+      if (result.success) {
+        setBackupSuccess('Backup uploaded to Box successfully!');
+        setBackupPassword('');
+        setBackupConfirmPassword('');
+        await checkBoxConnection(); // Refresh backup info
+        setTimeout(() => {
+          setBackupModalOpen(null);
+          setBackupSuccess(null);
+        }, 2000);
+      } else {
+        setBackupError(result.error || 'Failed to upload backup');
+      }
+    } catch (err: any) {
+      setBackupError(err.message);
+    }
+    setBackupLoading(false);
+  };
+
+  const handleBoxRestore = async () => {
+    if (!backupPassword) {
+      setBackupError('Please enter a password');
+      return;
+    }
+
+    setBackupLoading(true);
+    setBackupError(null);
+
+    try {
+      const result = await ipcRenderer.invoke('box:downloadBackup', backupPassword);
+      
+      if (result.success) {
+        // Reload servers and tags
+        await loadServers();
+        
+        // Restore 2FA TOTP entries if present
+        let totpCount = 0;
+        if (result.totpEntries && result.totpEntries.length > 0) {
+          localStorage.setItem('totp_entries', JSON.stringify(result.totpEntries));
+          totpCount = result.totpEntries.length;
+        }
+        
+        // Restore Port Forwards if present
+        let portForwardCount = 0;
+        if (result.portForwards && result.portForwards.length > 0) {
+          localStorage.setItem('port_forwards', JSON.stringify(result.portForwards));
+          portForwardCount = result.portForwards.length;
+        }
+        
+        const serverCount = result.serverCount || 0;
+        const sshKeyCount = result.sshKeyCount || 0;
+        
+        let successMessage = `Backup restored from Box!\n${serverCount} servers`;
+        if (sshKeyCount > 0) successMessage += `, ${sshKeyCount} SSH keys`;
+        if (totpCount > 0) successMessage += `, ${totpCount} 2FA entries`;
+        if (portForwardCount > 0) successMessage += `, ${portForwardCount} port forwards`;
+        successMessage += ' imported.';
+        
+        setBackupSuccess(successMessage);
+        setBackupPassword('');
+        setTimeout(() => {
+          setBackupModalOpen(null);
+          setBackupSuccess(null);
+        }, 2000);
+      } else {
+        setBackupError(result.error || 'Failed to restore backup from Box');
+      }
+    } catch (err: any) {
+      setBackupError(err.message);
+    }
+    setBackupLoading(false);
   };
 
   // GitHub OAuth functions
@@ -936,6 +1323,9 @@ const App: React.FC = () => {
         return;
       }
 
+      // Detect local OS info
+      const osInfo = await ipcRenderer.invoke('local:getOsInfo');
+
       const localSession: Session = {
         id: `local-${Date.now()}`,
         server: {
@@ -949,6 +1339,7 @@ const App: React.FC = () => {
         connectionId: result.connectionId,
         type: 'terminal',
         theme: currentTheme,
+        osInfo: osInfo || undefined,
       };
 
       setSessions([...sessions, localSession]);
@@ -1780,9 +2171,8 @@ const App: React.FC = () => {
                     {t('backupDescription')}
                   </p>
                   
-                  {/* Local Backup Section */}
+                  {/* Backup & Restore Section */}
                   <div className={`mb-4 pb-4 ${appTheme === 'light' ? 'border-b border-gray-200' : 'border-b border-navy-700'}`}>
-                    <p className={`text-xs font-medium mb-3 ${appTheme === 'light' ? 'text-gray-600' : 'text-gray-400'}`}>{t('localBackup')}</p>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       {/* Create Backup */}
                       <button
@@ -1815,183 +2205,6 @@ const App: React.FC = () => {
                           <p className={`text-xs ${appTheme === 'light' ? 'text-gray-500' : 'text-gray-500'}`}>{t('importFromFile')}</p>
                         </div>
                       </button>
-                    </div>
-                  </div>
-                  
-                  {/* GitHub Sync Section */}
-                  <div>
-                    <p className={`text-xs font-medium mb-3 flex items-center gap-2 ${appTheme === 'light' ? 'text-gray-600' : 'text-gray-400'}`}>
-                      <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-                        <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
-                      </svg>
-                      {t('githubBackup')}
-                    </p>
-                    <p className={`text-xs mb-3 ${appTheme === 'light' ? 'text-gray-500' : 'text-gray-500'}`}>
-                      {t('githubBackupDesc')}
-                    </p>
-                    
-                    <div className="space-y-3">
-                      {/* Not logged in - show login button */}
-                      {!githubUser && !githubDeviceCode && (
-                        <button
-                          onClick={handleGitHubLogin}
-                          disabled={githubLoading}
-                          className="w-full flex items-center justify-center gap-2 p-3 bg-gray-900 hover:bg-gray-800 disabled:opacity-50 text-white rounded-lg text-sm font-medium transition"
-                        >
-                          <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-                            <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
-                          </svg>
-                          {githubLoading ? t('githubConnecting') : t('connectWithGithub')}
-                        </button>
-                      )}
-                      
-                      {/* Device code display */}
-                      {githubDeviceCode && (
-                        <div className={`p-4 rounded-lg text-center ${appTheme === 'light' ? 'bg-yellow-50 border border-yellow-200' : 'bg-yellow-900/20 border border-yellow-700'}`}>
-                          <p className={`text-sm mb-2 ${appTheme === 'light' ? 'text-yellow-800' : 'text-yellow-300'}`}>
-                            {t('githubEnterCode')}
-                          </p>
-                          <p className={`text-2xl font-mono font-bold mb-3 ${appTheme === 'light' ? 'text-yellow-900' : 'text-yellow-100'}`}>
-                            {githubDeviceCode.user_code}
-                          </p>
-                          <p className={`text-xs ${appTheme === 'light' ? 'text-yellow-600' : 'text-yellow-400'}`}>
-                            {githubPolling ? t('githubWaiting') : t('loading')}
-                          </p>
-                          <button
-                            onClick={() => ipcRenderer.invoke('github:openAuthUrl', githubDeviceCode.verification_uri)}
-                            className="mt-2 text-xs text-teal-500 hover:text-teal-400 underline"
-                          >
-                            {t('githubOpenManually')}
-                          </button>
-                        </div>
-                      )}
-                      
-                      {/* Logged in - show user info and backup controls */}
-                      {githubUser && (
-                        <>
-                          <div className={`flex items-center justify-between p-3 rounded-lg ${appTheme === 'light' ? 'bg-gray-50 border border-gray-200' : 'bg-navy-900 border border-navy-700'}`}>
-                            <div className="flex items-center gap-3">
-                              <img 
-                                src={githubUser.avatar_url} 
-                                alt={githubUser.login}
-                                className="w-8 h-8 rounded-full"
-                              />
-                              <div>
-                                <p className={`text-sm font-medium ${appTheme === 'light' ? 'text-gray-800' : 'text-white'}`}>
-                                  {githubUser.name || githubUser.login}
-                                </p>
-                                <p className={`text-xs ${appTheme === 'light' ? 'text-gray-500' : 'text-gray-400'}`}>
-                                  @{githubUser.login}
-                                </p>
-                              </div>
-                            </div>
-                            <button
-                              onClick={handleGitHubLogout}
-                              className={`text-xs hover:underline ${appTheme === 'light' ? 'text-red-600' : 'text-red-400'}`}
-                            >
-                              {t('githubDisconnect')}
-                            </button>
-                          </div>
-                          
-                          {githubRepoName && (
-                            <div className={`flex items-center gap-2 px-3 py-2 rounded text-xs ${appTheme === 'light' ? 'bg-green-50 text-green-700' : 'bg-green-900/20 text-green-400'}`}>
-                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                              </svg>
-                              {t('backupRepo')}: {githubRepoName}
-                            </div>
-                          )}
-                          
-                          {/* Backup info */}
-                          <div className={`text-xs px-3 py-2 rounded ${appTheme === 'light' ? 'bg-blue-50 text-blue-700' : 'bg-blue-900/20 text-blue-300'}`}>
-                            <svg className="w-4 h-4 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                            </svg>
-                            Your backup will include <span className={appTheme === 'light' ? 'font-semibold text-blue-900' : 'text-white'}>{servers.length} servers</span>, 
-                            tags, and settings. The file will be encrypted with <span className="text-teal-500 font-medium">Argon2id + AES-256-GCM</span>.
-                          </div>
-                          
-                          <div>
-                            <label className={`block text-xs mb-1 ${appTheme === 'light' ? 'text-gray-600' : 'text-gray-400'}`}>{t('encryptionPassword')}</label>
-                            <input
-                              type="password"
-                              value={backupPassword}
-                              onChange={(e) => setBackupPassword(e.target.value)}
-                              placeholder={t('enterPasswordEncrypt')}
-                              className={`w-full px-3 py-2 rounded-lg text-sm focus:outline-none focus:border-teal-500 ${appTheme === 'light' ? 'bg-gray-50 border border-gray-300 text-gray-900 placeholder-gray-400' : 'bg-navy-900 border border-navy-600 text-white placeholder-gray-500'}`}
-                            />
-                            {/* Password Requirements */}
-                            <div className={`mt-2 text-xs space-y-0.5 ${appTheme === 'light' ? 'text-gray-500' : 'text-gray-500'}`}>
-                              <p className={backupPassword.length >= 10 ? 'text-green-500' : ''}>
-                                {backupPassword.length >= 10 ? '✓' : '○'} At least 10 characters
-                              </p>
-                              <p className={/[A-Z]/.test(backupPassword) ? 'text-green-500' : ''}>
-                                {/[A-Z]/.test(backupPassword) ? '✓' : '○'} At least 1 uppercase letter
-                              </p>
-                              <p className={/[a-z]/.test(backupPassword) ? 'text-green-500' : ''}>
-                                {/[a-z]/.test(backupPassword) ? '✓' : '○'} At least 1 lowercase letter
-                              </p>
-                              <p className={/\d/.test(backupPassword) ? 'text-green-500' : ''}>
-                                {/\d/.test(backupPassword) ? '✓' : '○'} At least 1 number
-                              </p>
-                              <p className={/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?~`]/.test(backupPassword) ? 'text-green-500' : ''}>
-                                {/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?~`]/.test(backupPassword) ? '✓' : '○'} At least 1 special character
-                              </p>
-                            </div>
-                          </div>
-                          
-                          <div>
-                            <label className={`block text-xs mb-1 ${appTheme === 'light' ? 'text-gray-600' : 'text-gray-400'}`}>{t('confirmPassword')}</label>
-                            <input
-                              type="password"
-                              value={backupConfirmPassword}
-                              onChange={(e) => setBackupConfirmPassword(e.target.value)}
-                              placeholder={t('confirmPasswordPlaceholder')}
-                              className={`w-full px-3 py-2 rounded-lg text-sm focus:outline-none focus:border-teal-500 ${appTheme === 'light' ? 'bg-gray-50 border border-gray-300 text-gray-900 placeholder-gray-400' : 'bg-navy-900 border border-navy-600 text-white placeholder-gray-500'}`}
-                            />
-                            {backupConfirmPassword && backupPassword !== backupConfirmPassword && (
-                              <p className="mt-1 text-xs text-red-500">{t('passwordMismatch')}</p>
-                            )}
-                            {backupConfirmPassword && backupPassword === backupConfirmPassword && (
-                              <p className="mt-1 text-xs text-green-500">✓ Passwords match</p>
-                            )}
-                          </div>
-                          
-                          {backupError && (
-                            <div className="text-xs text-red-500 space-y-1">
-                              {backupError.split('\n').map((err, i) => (
-                                <p key={i}>{err}</p>
-                              ))}
-                            </div>
-                          )}
-                          {backupSuccess && (
-                            <p className="text-xs text-green-500">{backupSuccess}</p>
-                          )}
-                          
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                            <button
-                              onClick={handleGitHubUpload}
-                              disabled={githubLoading || !backupPassword || backupPassword.length < 10 || !/[A-Z]/.test(backupPassword) || !/[a-z]/.test(backupPassword) || !/\d/.test(backupPassword) || !/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?~`]/.test(backupPassword) || backupPassword !== backupConfirmPassword}
-                              className="flex items-center justify-center gap-2 p-2.5 bg-teal-600 hover:bg-teal-700 disabled:opacity-50 !text-white rounded-lg text-sm font-medium transition"
-                            >
-                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-                              </svg>
-                              {githubLoading ? t('uploading') : t('pushBackup')}
-                            </button>
-                            <button
-                              onClick={handleGitHubDownload}
-                              disabled={githubLoading || !backupPassword}
-                              className="flex items-center justify-center gap-2 p-2.5 bg-purple-600 hover:bg-purple-700 disabled:opacity-50 !text-white rounded-lg text-sm font-medium transition"
-                            >
-                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M9 19l3 3m0 0l3-3m-3 3V10" />
-                              </svg>
-                              {githubLoading ? t('downloading') : t('pullBackup')}
-                            </button>
-                          </div>
-                        </>
-                      )}
                     </div>
                   </div>
                 </div>
@@ -3532,28 +3745,31 @@ const App: React.FC = () => {
                 currentTheme={currentTheme}
                 onThemeChange={handleThemeChange}
               />
-              <div className="flex items-center bg-navy-900 rounded overflow-hidden">
-                <button
-                  onClick={toggleSessionType}
-                  className={`px-3 py-1.5 text-xs font-medium transition ${
-                    activeSession.type === 'terminal'
-                      ? 'bg-teal-600 text-white'
-                      : 'text-gray-400 hover:text-white hover:bg-navy-700'
-                  }`}
-                >
-                  {t('terminal')}
-                </button>
-                <button
-                  onClick={toggleSessionType}
-                  className={`px-3 py-1.5 text-xs font-medium transition ${
-                    activeSession.type === 'sftp'
-                      ? 'bg-teal-600 text-white'
-                      : 'text-gray-400 hover:text-white hover:bg-navy-700'
-                  }`}
-                >
-                  {t('sftp')}
-                </button>
-              </div>
+              {/* Only show Terminal/SFTP switch for remote SSH sessions (not local terminal) */}
+              {activeSession.server.id !== 'local' && (
+                <div className="flex items-center bg-navy-900 rounded overflow-hidden">
+                  <button
+                    onClick={toggleSessionType}
+                    className={`px-3 py-1.5 text-xs font-medium transition ${
+                      activeSession.type === 'terminal'
+                        ? 'bg-teal-600 text-white'
+                        : 'text-gray-400 hover:text-white hover:bg-navy-700'
+                    }`}
+                  >
+                    {t('terminal')}
+                  </button>
+                  <button
+                    onClick={toggleSessionType}
+                    className={`px-3 py-1.5 text-xs font-medium transition ${
+                      activeSession.type === 'sftp'
+                        ? 'bg-teal-600 text-white'
+                        : 'text-gray-400 hover:text-white hover:bg-navy-700'
+                    }`}
+                  >
+                    {t('sftp')}
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -3852,189 +4068,44 @@ const App: React.FC = () => {
 
       {/* Backup Modal */}
       {backupModalOpen && (
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center">
-          {/* Backdrop */}
-          <div 
-            className="absolute inset-0 bg-black/70 backdrop-blur-sm"
-            onClick={closeBackupModal}
-          />
-          
-          {/* Modal */}
-          <div className="relative bg-navy-800 border border-navy-700 rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
-            {/* Header */}
-            <div className="flex items-center justify-between p-5 border-b border-navy-700">
-              <div className="flex items-center gap-3">
-                <div className={`p-2.5 rounded-xl ${backupModalOpen === 'create' ? 'bg-teal-500/20' : 'bg-purple-500/20'}`}>
-                  {backupModalOpen === 'create' ? (
-                    <svg className="w-5 h-5 text-teal-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
-                    </svg>
-                  ) : (
-                    <svg className="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                    </svg>
-                  )}
-                </div>
-                <div>
-                  <h2 className="text-lg font-semibold text-white">
-                    {backupModalOpen === 'create' ? 'Create Backup' : 'Restore Backup'}
-                  </h2>
-                  <p className="text-xs text-gray-500">
-                    {backupModalOpen === 'create' 
-                      ? 'Encrypt and save your data' 
-                      : 'Decrypt and restore your data'}
-                  </p>
-                </div>
-              </div>
-              <button
-                onClick={closeBackupModal}
-                className="p-2 hover:bg-navy-700 rounded-lg transition text-gray-400 hover:text-white"
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-
-            {/* Body */}
-            <div className="p-5 space-y-4">
-              {/* Info */}
-              <div className="flex items-start gap-3 p-3 bg-navy-900 rounded-lg">
-                <svg className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                <div className="text-xs text-gray-400">
-                  {backupModalOpen === 'create' ? (
-                    <>
-                      Your backup will include <span className="text-white">{servers.length} servers</span>, 
-                      tags, and settings. The file will be encrypted with <span className="text-teal-400">Argon2id + AES-256-GCM</span>.
-                    </>
-                  ) : (
-                    <>
-                      Select your backup file and enter the password you used when creating the backup.
-                      <span className="text-amber-400 block mt-1">⚠️ This will replace your current data.</span>
-                    </>
-                  )}
-                </div>
-              </div>
-
-              {/* Password Input */}
-              <div>
-                <label className="block text-sm text-gray-400 mb-2">
-                  {backupModalOpen === 'create' ? 'Encryption Password' : 'Backup Password'}
-                </label>
-                <input
-                  type="password"
-                  value={backupPassword}
-                  onChange={(e) => setBackupPassword(e.target.value)}
-                  placeholder={backupModalOpen === 'create' ? 'Strong password (10+ chars)...' : 'Enter password...'}
-                  className="w-full px-4 py-3 bg-navy-900 border border-navy-600 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-teal-500 transition"
-                />
-                {/* Password Requirements (only for create) */}
-                {backupModalOpen === 'create' && (
-                  <div className="mt-2 text-xs text-gray-500 space-y-1">
-                    <p className={backupPassword.length >= 10 ? 'text-green-400' : ''}>
-                      {backupPassword.length >= 10 ? '✓' : '○'} At least 10 characters
-                    </p>
-                    <p className={/[A-Z]/.test(backupPassword) ? 'text-green-400' : ''}>
-                      {/[A-Z]/.test(backupPassword) ? '✓' : '○'} At least 1 uppercase letter
-                    </p>
-                    <p className={/[a-z]/.test(backupPassword) ? 'text-green-400' : ''}>
-                      {/[a-z]/.test(backupPassword) ? '✓' : '○'} At least 1 lowercase letter
-                    </p>
-                    <p className={/\d/.test(backupPassword) ? 'text-green-400' : ''}>
-                      {/\d/.test(backupPassword) ? '✓' : '○'} At least 1 number
-                    </p>
-                    <p className={/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?~`]/.test(backupPassword) ? 'text-green-400' : ''}>
-                      {/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?~`]/.test(backupPassword) ? '✓' : '○'} At least 1 special character
-                    </p>
-                  </div>
-                )}
-              </div>
-
-              {/* Confirm Password (only for create) */}
-              {backupModalOpen === 'create' && (
-                <div>
-                  <label className="block text-sm text-gray-400 mb-2">Confirm Password</label>
-                  <input
-                    type="password"
-                    value={backupConfirmPassword}
-                    onChange={(e) => setBackupConfirmPassword(e.target.value)}
-                    placeholder="Confirm password..."
-                    className="w-full px-4 py-3 bg-navy-900 border border-navy-600 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-teal-500 transition"
-                  />
-                  {backupConfirmPassword && backupPassword !== backupConfirmPassword && (
-                    <p className="mt-1 text-xs text-red-400">Passwords do not match</p>
-                  )}
-                  {backupConfirmPassword && backupPassword === backupConfirmPassword && (
-                    <p className="mt-1 text-xs text-green-400">✓ Passwords match</p>
-                  )}
-                </div>
-              )}
-
-              {/* Error Message */}
-              {backupError && (
-                <div className="flex items-start gap-2 p-3 bg-red-500/10 border border-red-500/30 rounded-lg">
-                  <svg className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                  <span className="text-sm text-red-400 whitespace-pre-line">{backupError}</span>
-                </div>
-              )}
-
-              {/* Success Message */}
-              {backupSuccess && (
-                <div className="flex items-center gap-2 p-3 bg-green-500/10 border border-green-500/30 rounded-lg">
-                  <svg className="w-4 h-4 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                  <span className="text-sm text-green-400 whitespace-pre-line">{backupSuccess}</span>
-                </div>
-              )}
-            </div>
-
-            {/* Footer */}
-            <div className="flex items-center justify-end gap-3 p-5 border-t border-navy-700 bg-navy-850">
-              <button
-                onClick={closeBackupModal}
-                disabled={backupLoading}
-                className="px-4 py-2.5 text-gray-400 hover:text-white hover:bg-navy-700 rounded-lg transition font-medium"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={backupModalOpen === 'create' ? handleCreateBackup : handleRestoreBackup}
-                disabled={backupLoading || !backupPassword || !!backupSuccess}
-                className={`px-5 py-2.5 font-medium rounded-lg transition flex items-center gap-2 ${
-                  backupModalOpen === 'create'
-                    ? 'bg-teal-600 hover:bg-teal-700 text-white disabled:bg-teal-600/50'
-                    : 'bg-purple-600 hover:bg-purple-700 text-white disabled:bg-purple-600/50'
-                } disabled:cursor-not-allowed`}
-              >
-                {backupLoading ? (
-                  <>
-                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                    Processing...
-                  </>
-                ) : backupModalOpen === 'create' ? (
-                  <>
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
-                    </svg>
-                    Create Backup
-                  </>
-                ) : (
-                  <>
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                    </svg>
-                    Restore Backup
-                  </>
-                )}
-              </button>
-            </div>
-          </div>
-        </div>
+        <BackupModal
+          mode={backupModalOpen}
+          onClose={closeBackupModal}
+          backupMethod={backupMethod}
+          onMethodChange={setBackupMethod}
+          password={backupPassword}
+          onPasswordChange={setBackupPassword}
+          confirmPassword={backupConfirmPassword}
+          onConfirmPasswordChange={setBackupConfirmPassword}
+          error={backupError}
+          success={backupSuccess}
+          loading={backupLoading}
+          gitlabConnected={gitlabConnected}
+          gitlabConnecting={gitlabConnecting}
+          gitlabBackupInfo={gitlabBackupInfo}
+          onGitLabConnect={handleGitLabConnect}
+          onGitLabDisconnect={handleGitLabDisconnect}
+          onLocalBackup={handleCreateBackup}
+          onLocalRestore={handleRestoreBackup}
+          onGitLabBackup={handleGitLabBackup}
+          onGitLabRestore={handleGitLabRestore}
+          githubUser={githubUser}
+          githubLoading={githubLoading}
+          githubPolling={githubPolling}
+          githubDeviceCode={githubDeviceCode}
+          onGitHubConnect={handleGitHubLogin}
+          onGitHubLogout={handleGitHubLogout}
+          onGitHubBackup={handleGitHubUpload}
+          onGitHubRestore={handleGitHubDownload}
+          boxConnected={boxConnected}
+          boxConnecting={boxConnecting}
+          boxBackupInfo={boxBackupInfo}
+          onBoxConnect={handleBoxConnect}
+          onBoxDisconnect={handleBoxDisconnect}
+          onBoxBackup={handleBoxBackup}
+          onBoxRestore={handleBoxRestore}
+          t={t}
+        />
       )}
 
       {/* Cloudflare DNS Record Modal */}

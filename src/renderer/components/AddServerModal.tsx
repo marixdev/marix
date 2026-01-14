@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { ipcRenderer } from 'electron';
 import { Server } from '../App';
 import { useLanguage } from '../contexts/LanguageContext';
+import PortKnockingGuideModal from './PortKnockingGuideModal';
 
 interface SSHKeyInfo {
   id: string;
@@ -37,11 +38,15 @@ const AddServerModal: React.FC<Props> = ({ server, existingTags = [], onSave, on
     wssUrl: '',  // Full WebSocket URL for WSS
     tags: [] as string[],  // Tags for organizing servers
     sshKeyId: '',  // Selected SSH key from Keychain
+    knockEnabled: false,  // Port knocking enabled
+    knockSequence: [] as number[],  // Port knocking sequence
   });
   const [tagInput, setTagInput] = useState('');
   const [showTagSuggestions, setShowTagSuggestions] = useState(false);
   const [sshKeys, setSSHKeys] = useState<SSHKeyInfo[]>([]);
   const [loadingKeys, setLoadingKeys] = useState(false);
+  const [knockInput, setKnockInput] = useState('');
+  const [showKnockGuide, setShowKnockGuide] = useState(false);
 
   // Load SSH keys from Keychain
   useEffect(() => {
@@ -77,7 +82,14 @@ const AddServerModal: React.FC<Props> = ({ server, existingTags = [], onSave, on
         wssUrl: server.wssUrl || '',
         tags: server.tags || [],
         sshKeyId: (server as any).sshKeyId || '',
+        knockEnabled: server.knockEnabled || false,
+        knockSequence: server.knockSequence || [],
       });
+      
+      // Set knock input string
+      if (server.knockSequence && server.knockSequence.length > 0) {
+        setKnockInput(server.knockSequence.join(', '));
+      }
     }
   }, [server]);
 
@@ -256,6 +268,14 @@ const AddServerModal: React.FC<Props> = ({ server, existingTags = [], onSave, on
       return;
     }
     
+    // Validate port knocking sequence if enabled
+    if (data.knockEnabled && data.protocol === 'ssh') {
+      if (data.knockSequence.length < 3) {
+        alert('Port knocking requires at least 3 ports in the sequence');
+        return;
+      }
+    }
+    
     onSave(data);
   };
 
@@ -265,6 +285,35 @@ const AddServerModal: React.FC<Props> = ({ server, existingTags = [], onSave, on
       ...prev,
       [name]: name === 'port' ? parseInt(value) || 22 : value,
     }));
+  };
+
+  // Handle knock sequence input
+  const handleKnockInputChange = (value: string) => {
+    setKnockInput(value);
+    
+    // Parse comma or space separated ports
+    const parts = value.split(/[,\s]+/).map(p => p.trim()).filter(p => p);
+    const ports: number[] = [];
+    
+    for (const part of parts) {
+      const port = parseInt(part, 10);
+      if (!isNaN(port) && port >= 1 && port <= 65535) {
+        ports.push(port);
+      }
+    }
+    
+    setData(prev => ({ ...prev, knockSequence: ports }));
+  };
+
+  // Generate random knock sequence
+  const handleGenerateKnockSequence = async () => {
+    try {
+      const ports = await ipcRenderer.invoke('portknock:generateSequence', 4);
+      setData(prev => ({ ...prev, knockSequence: ports }));
+      setKnockInput(ports.join(', '));
+    } catch (err) {
+      console.error('Failed to generate knock sequence:', err);
+    }
   };
 
   return (
@@ -432,6 +481,79 @@ const AddServerModal: React.FC<Props> = ({ server, existingTags = [], onSave, on
                   required
                 />
               </div>
+            </div>
+          )}
+
+          {/* Port Knocking (SSH only) */}
+          {data.protocol === 'ssh' && (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <label className="block text-xs font-medium text-gray-400 uppercase tracking-wider">{t('portKnocking')}</label>
+                  <p className="text-xs text-gray-500 mt-1">{t('portKnockingDesc')}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setData(prev => ({ ...prev, knockEnabled: !prev.knockEnabled }))}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition ${
+                    data.knockEnabled ? 'bg-teal-600' : 'bg-navy-700'
+                  }`}
+                >
+                  <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition ${
+                    data.knockEnabled ? 'translate-x-6' : 'translate-x-1'
+                  }`} />
+                </button>
+              </div>
+              
+              {data.knockEnabled && (
+                <div className="space-y-2">
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={knockInput}
+                      onChange={(e) => handleKnockInputChange(e.target.value)}
+                      placeholder="7000, 8000, 9000, 10000"
+                      className="flex-1 px-3 py-2 bg-navy-900 border border-navy-600 rounded-lg text-sm text-white placeholder-gray-500 font-mono focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500 transition"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleGenerateKnockSequence}
+                      className="px-3 py-2 bg-navy-700 hover:bg-navy-600 border border-navy-600 rounded-lg text-xs text-gray-300 hover:text-white transition flex items-center gap-1.5"
+                      title={t('generateRandom')}
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                      </svg>
+                      {t('random')}
+                    </button>
+                  </div>
+                  
+                  {data.knockSequence.length > 0 && (
+                    <div className="p-2.5 bg-teal-500/10 border border-teal-500/30 rounded-lg">
+                      <p className="text-xs text-teal-400">
+                        ✓ {t('knockSequence')}: {data.knockSequence.join(' → ')} ({data.knockSequence.length} {t('ports')})
+                      </p>
+                    </div>
+                  )}
+                  
+                  {data.knockSequence.length < 3 && data.knockSequence.length > 0 && (
+                    <p className="text-xs text-amber-400">⚠ {t('knockMinPorts')}</p>
+                  )}
+                  
+                  <div className="p-2.5 bg-blue-500/10 border border-blue-500/30 rounded-lg">
+                    <p className="text-xs text-blue-400 leading-relaxed">
+                      <strong>{t('knockServerSetup')}:</strong> {t('knockSetupDesc')} 
+                      <button
+                        type="button"
+                        onClick={(e) => { e.preventDefault(); setShowKnockGuide(true); }}
+                        className="underline hover:text-blue-300 ml-1 transition-colors"
+                      >
+                        {t('learnMore')}
+                      </button>
+                    </p>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -616,6 +738,9 @@ const AddServerModal: React.FC<Props> = ({ server, existingTags = [], onSave, on
           </button>
         </div>
       </div>
+      
+      {/* Port Knocking Guide Modal */}
+      {showKnockGuide && <PortKnockingGuideModal onClose={() => setShowKnockGuide(false)} />}
     </div>
   );
 };

@@ -51,6 +51,11 @@ const GitHubAuthService_1 = require("./services/GitHubAuthService");
 const KnownHostsService_1 = require("./services/KnownHostsService");
 const SSHKeyService_1 = require("./services/SSHKeyService");
 const PortForwardingService_1 = require("./services/PortForwardingService");
+const GitLabOAuthService_1 = require("./services/GitLabOAuthService");
+const GitLabApiService_1 = require("./services/GitLabApiService");
+const BoxOAuthService_1 = require("./services/BoxOAuthService");
+const BoxApiService_1 = require("./services/BoxApiService");
+const PortKnockService_1 = require("./services/PortKnockService");
 let mainWindow = null;
 let tray = null;
 const nativeSSH = new NativeSSHManager_1.NativeSSHManager(); // For terminal (with MOTD)
@@ -144,6 +149,25 @@ function createWindow() {
     });
 }
 electron_1.app.whenReady().then(() => {
+    // Register protocol handler for OAuth callbacks
+    if (process.defaultApp) {
+        if (process.argv.length >= 2) {
+            electron_1.app.setAsDefaultProtocolClient('marix', process.execPath, [path.resolve(process.argv[1])]);
+        }
+    }
+    else {
+        electron_1.app.setAsDefaultProtocolClient('marix');
+    }
+    // Handle protocol URL from command line args (Linux)
+    const protocolUrl = process.argv.find(arg => arg.startsWith('marix://'));
+    if (protocolUrl) {
+        console.log('[Protocol] Received URL from argv:', protocolUrl);
+        setTimeout(() => {
+            if (protocolUrl.startsWith('marix://oauth/gitlab')) {
+                GitLabOAuthService_1.GitLabOAuthService.handleCallback(protocolUrl);
+            }
+        }, 1000); // Wait for app to initialize
+    }
     createWindow();
     createTray();
     electron_1.app.on('activate', () => {
@@ -152,6 +176,37 @@ electron_1.app.whenReady().then(() => {
         }
     });
 });
+// Handle protocol URLs (OAuth callbacks)
+electron_1.app.on('open-url', (event, url) => {
+    event.preventDefault();
+    console.log('[Protocol] Received URL:', url);
+    if (url.startsWith('marix://oauth/gitlab')) {
+        GitLabOAuthService_1.GitLabOAuthService.handleCallback(url);
+    }
+});
+// Handle protocol URLs on Windows
+const gotTheLock = electron_1.app.requestSingleInstanceLock();
+if (!gotTheLock) {
+    electron_1.app.quit();
+}
+else {
+    electron_1.app.on('second-instance', (event, commandLine) => {
+        // Handle protocol URL on Windows (from commandLine)
+        const url = commandLine.find(arg => arg.startsWith('marix://'));
+        if (url) {
+            console.log('[Protocol] Received URL from second instance:', url);
+            if (url.startsWith('marix://oauth/gitlab')) {
+                GitLabOAuthService_1.GitLabOAuthService.handleCallback(url);
+            }
+        }
+        // Focus main window
+        if (mainWindow) {
+            if (mainWindow.isMinimized())
+                mainWindow.restore();
+            mainWindow.focus();
+        }
+    });
+}
 electron_1.app.on('window-all-closed', () => {
     // Close all RDP sessions before quitting
     rdpManager.closeAll();
@@ -202,6 +257,11 @@ electron_1.ipcMain.handle('dialog:openFile', async (event, options) => {
 // IPC Handlers - Use NativeSSH for terminal (proper MOTD support)
 electron_1.ipcMain.handle('ssh:connect', async (event, config) => {
     try {
+        // Perform port knocking if enabled
+        if (config.knockEnabled && config.knockSequence && config.knockSequence.length > 0) {
+            console.log('[Main] Port knocking enabled, knocking before SSH connect...');
+            await PortKnockService_1.PortKnockService.knock(config.host, config.knockSequence);
+        }
         // Connect using native SSH (spawns ssh command with PTY)
         const { connectionId, emitter } = await nativeSSH.connectAndCreateShell(config);
         // Setup data forwarding to renderer
@@ -251,6 +311,65 @@ electron_1.ipcMain.handle('local:createShell', async (event, cols, rows) => {
     }
     catch (error) {
         return { success: false, error: error.message };
+    }
+});
+// Get local OS info
+electron_1.ipcMain.handle('local:getOsInfo', async () => {
+    try {
+        const os = require('os');
+        const { execSync } = require('child_process');
+        let osName = os.type(); // 'Linux', 'Darwin', 'Windows_NT'
+        let ip = '';
+        // Get more detailed OS info on Linux
+        if (osName === 'Linux') {
+            try {
+                const osRelease = execSync('cat /etc/os-release 2>/dev/null | grep -E "^PRETTY_NAME" | head -1 | cut -d= -f2 | tr -d \'"\'', { encoding: 'utf8' });
+                if (osRelease.trim()) {
+                    osName = osRelease.trim();
+                }
+                else {
+                    osName = 'Linux';
+                }
+            }
+            catch {
+                osName = 'Linux';
+            }
+        }
+        else if (osName === 'Darwin') {
+            osName = 'macOS';
+        }
+        else if (osName === 'Windows_NT') {
+            osName = 'Windows';
+        }
+        // Get local IP
+        const networkInterfaces = os.networkInterfaces();
+        for (const name of Object.keys(networkInterfaces)) {
+            const iface = networkInterfaces[name];
+            if (iface) {
+                for (const net of iface) {
+                    // Skip internal and non-IPv4 addresses
+                    if (!net.internal && net.family === 'IPv4') {
+                        ip = net.address;
+                        break;
+                    }
+                }
+            }
+            if (ip)
+                break;
+        }
+        return {
+            os: osName,
+            ip: ip || 'localhost',
+            provider: null, // Local machine, no provider
+        };
+    }
+    catch (error) {
+        console.error('[Main] Error getting local OS info:', error);
+        return {
+            os: require('os').type(),
+            ip: 'localhost',
+            provider: null,
+        };
     }
 });
 electron_1.ipcMain.handle('ssh:disconnect', async (event, connectionId) => {
@@ -791,8 +910,7 @@ electron_1.ipcMain.handle('wss:history', async (event, connectionId) => {
 });
 // Backup handlers
 electron_1.ipcMain.handle('backup:validatePassword', async (event, password) => {
-    const { validatePassword } = require('./services/BackupService');
-    return validatePassword(password);
+    return backupService.validatePassword(password);
 });
 electron_1.ipcMain.handle('backup:create', async (event, data, password, customPath) => {
     try {
@@ -944,8 +1062,14 @@ electron_1.ipcMain.handle('github:uploadBackup', async (event, password, totpEnt
         return { success: false, error: backupResult.error };
     }
     // Upload to GitHub (will overwrite existing backup.arix file)
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    return await githubAuthService.uploadBackup(backupResult.content, `Marix backup ${timestamp}`);
+    const now = new Date();
+    const dd = String(now.getUTCDate()).padStart(2, '0');
+    const mm = String(now.getUTCMonth() + 1).padStart(2, '0');
+    const yyyy = now.getUTCFullYear();
+    const hours = String(now.getUTCHours()).padStart(2, '0');
+    const minutes = String(now.getUTCMinutes()).padStart(2, '0');
+    const commitMessage = `Marix backup ${dd}-${mm}-${yyyy} ${hours}:${minutes} (UTC)`;
+    return await githubAuthService.uploadBackup(backupResult.content, commitMessage);
 });
 electron_1.ipcMain.handle('github:downloadBackup', async (event, password) => {
     // Download from GitHub
@@ -981,6 +1105,262 @@ electron_1.ipcMain.handle('github:downloadBackup', async (event, password) => {
 electron_1.ipcMain.handle('github:openAuthUrl', async (event, url) => {
     electron_1.shell.openExternal(url);
     return { success: true };
+});
+// ==================== GitLab OAuth Handlers ====================
+electron_1.ipcMain.handle('gitlab:startOAuth', async () => {
+    try {
+        const tokens = await GitLabOAuthService_1.GitLabOAuthService.startOAuthFlow(mainWindow || undefined);
+        GitLabOAuthService_1.GitLabOAuthService.saveTokens(tokens);
+        return { success: true };
+    }
+    catch (error) {
+        console.error('[GitLab OAuth] Error:', error);
+        return { success: false, error: error.message };
+    }
+});
+electron_1.ipcMain.handle('gitlab:submitCode', async (event, code) => {
+    try {
+        GitLabOAuthService_1.GitLabOAuthService.handleManualCode(code);
+        return { success: true };
+    }
+    catch (error) {
+        console.error('[GitLab OAuth] Error submitting code:', error);
+        return { success: false, error: error.message };
+    }
+});
+electron_1.ipcMain.handle('gitlab:hasToken', async () => {
+    const tokens = GitLabOAuthService_1.GitLabOAuthService.loadTokens();
+    if (!tokens) {
+        return { hasToken: false };
+    }
+    // Check if token is valid or can be refreshed
+    if (GitLabOAuthService_1.GitLabOAuthService.isTokenValid(tokens)) {
+        return { hasToken: true };
+    }
+    // Try to refresh
+    try {
+        const newTokens = await GitLabOAuthService_1.GitLabOAuthService.refreshToken(tokens);
+        GitLabOAuthService_1.GitLabOAuthService.saveTokens(newTokens);
+        return { hasToken: true };
+    }
+    catch (err) {
+        return { hasToken: false };
+    }
+});
+electron_1.ipcMain.handle('gitlab:logout', async () => {
+    GitLabOAuthService_1.GitLabOAuthService.clearTokens();
+    return { success: true };
+});
+electron_1.ipcMain.handle('gitlab:uploadBackup', async (event, password, totpEntries, portForwards) => {
+    try {
+        // Validate password first
+        const validation = backupService.validatePassword(password);
+        if (!validation.valid) {
+            return { success: false, error: validation.errors.join('\n') };
+        }
+        // Get access token
+        const accessToken = await GitLabOAuthService_1.GitLabOAuthService.getValidAccessToken();
+        if (!accessToken) {
+            return { success: false, error: 'Not authenticated with GitLab. Please connect first.' };
+        }
+        // Gather data to backup
+        const servers = serverStore.getAllServers();
+        const tagColors = serverStore.getTagColors();
+        const cloudflareToken = CloudflareService_1.cloudflareService.getToken() || undefined;
+        const sshKeys = SSHKeyService_1.sshKeyService.exportAllKeysForBackup();
+        // Create encrypted backup content
+        const backupResult = await backupService.createBackupContent(password, servers, tagColors, cloudflareToken, sshKeys, totpEntries, portForwards);
+        if (!backupResult.success || !backupResult.content) {
+            return { success: false, error: backupResult.error };
+        }
+        // Upload to GitLab
+        await GitLabApiService_1.GitLabApiService.uploadBackup(accessToken, backupResult.content);
+        return { success: true };
+    }
+    catch (error) {
+        console.error('[GitLab] Upload backup error:', error);
+        return { success: false, error: error.message };
+    }
+});
+electron_1.ipcMain.handle('gitlab:downloadBackup', async (event, password) => {
+    try {
+        // Get access token
+        const accessToken = await GitLabOAuthService_1.GitLabOAuthService.getValidAccessToken();
+        if (!accessToken) {
+            return { success: false, error: 'Not authenticated with GitLab. Please connect first.' };
+        }
+        // Download from GitLab
+        const encryptedContent = await GitLabApiService_1.GitLabApiService.downloadBackup(accessToken);
+        // Decrypt backup
+        const restoreResult = await backupService.restoreBackupContent(encryptedContent, password);
+        if (!restoreResult.success || !restoreResult.data) {
+            return { success: false, error: restoreResult.error };
+        }
+        // Restore data
+        serverStore.setServers(restoreResult.data.servers);
+        serverStore.setTagColors(restoreResult.data.tagColors);
+        if (restoreResult.data.cloudflareToken) {
+            CloudflareService_1.cloudflareService.setToken(restoreResult.data.cloudflareToken);
+        }
+        // Restore SSH keys
+        let sshKeyCount = 0;
+        if (restoreResult.data.sshKeys && restoreResult.data.sshKeys.length > 0) {
+            const importResult = await SSHKeyService_1.sshKeyService.importKeysFromBackup(restoreResult.data.sshKeys);
+            sshKeyCount = importResult.imported;
+        }
+        return {
+            success: true,
+            serverCount: restoreResult.data.servers.length,
+            sshKeyCount,
+            totpEntries: restoreResult.data.totpEntries,
+            portForwards: restoreResult.data.portForwards
+        };
+    }
+    catch (error) {
+        console.error('[GitLab] Download backup error:', error);
+        return { success: false, error: error.message };
+    }
+});
+electron_1.ipcMain.handle('gitlab:checkBackup', async () => {
+    try {
+        const accessToken = await GitLabOAuthService_1.GitLabOAuthService.getValidAccessToken();
+        if (!accessToken) {
+            return { exists: false };
+        }
+        const exists = await GitLabApiService_1.GitLabApiService.backupExists(accessToken);
+        if (!exists) {
+            return { exists: false };
+        }
+        const metadata = await GitLabApiService_1.GitLabApiService.getBackupMetadata(accessToken);
+        return { exists: true, metadata };
+    }
+    catch (error) {
+        console.error('[GitLab] Check backup error:', error);
+        return { exists: false };
+    }
+});
+// ==================== Box OAuth Handlers ====================
+electron_1.ipcMain.handle('box:startOAuth', async () => {
+    try {
+        const tokens = await BoxOAuthService_1.BoxOAuthService.startOAuthFlow(mainWindow || undefined);
+        BoxOAuthService_1.BoxOAuthService.saveTokens(tokens);
+        return { success: true };
+    }
+    catch (error) {
+        console.error('[Box OAuth] Error:', error);
+        return { success: false, error: error.message };
+    }
+});
+electron_1.ipcMain.handle('box:submitCode', async (event, code) => {
+    try {
+        BoxOAuthService_1.BoxOAuthService.handleManualCode(code);
+        return { success: true };
+    }
+    catch (error) {
+        console.error('[Box OAuth] Error submitting code:', error);
+        return { success: false, error: error.message };
+    }
+});
+electron_1.ipcMain.handle('box:hasToken', async () => {
+    const accessToken = await BoxOAuthService_1.BoxOAuthService.getValidAccessToken();
+    return { hasToken: !!accessToken };
+});
+electron_1.ipcMain.handle('box:logout', async () => {
+    try {
+        BoxOAuthService_1.BoxOAuthService.deleteTokens();
+        return { success: true };
+    }
+    catch (error) {
+        console.error('[Box] Logout error:', error);
+        return { success: false, error: error.message };
+    }
+});
+electron_1.ipcMain.handle('box:uploadBackup', async (event, password, totpEntries, portForwards) => {
+    try {
+        // Validate password
+        const validation = backupService.validatePassword(password);
+        if (!validation.valid) {
+            return { success: false, error: validation.errors.join('\n') };
+        }
+        // Get access token
+        const accessToken = await BoxOAuthService_1.BoxOAuthService.getValidAccessToken();
+        if (!accessToken) {
+            return { success: false, error: 'Not authenticated with Box. Please connect first.' };
+        }
+        const servers = serverStore.getAllServers();
+        const tagColors = serverStore.getTagColors();
+        const cloudflareToken = CloudflareService_1.cloudflareService.getToken() || undefined;
+        const sshKeys = SSHKeyService_1.sshKeyService.exportAllKeysForBackup();
+        // Create encrypted backup content
+        const backupResult = await backupService.createBackupContent(password, servers, tagColors, cloudflareToken, sshKeys, totpEntries, portForwards);
+        if (!backupResult.success || !backupResult.content) {
+            return { success: false, error: backupResult.error };
+        }
+        // Upload to Box
+        await BoxApiService_1.BoxApiService.uploadBackup(accessToken, backupResult.content);
+        return { success: true };
+    }
+    catch (error) {
+        console.error('[Box] Upload backup error:', error);
+        return { success: false, error: error.message };
+    }
+});
+electron_1.ipcMain.handle('box:downloadBackup', async (event, password) => {
+    try {
+        // Get access token
+        const accessToken = await BoxOAuthService_1.BoxOAuthService.getValidAccessToken();
+        if (!accessToken) {
+            return { success: false, error: 'Not authenticated with Box. Please connect first.' };
+        }
+        // Download from Box
+        const encryptedContent = await BoxApiService_1.BoxApiService.downloadBackup(accessToken);
+        // Decrypt backup
+        const restoreResult = await backupService.restoreBackupContent(encryptedContent, password);
+        if (!restoreResult.success || !restoreResult.data) {
+            return { success: false, error: restoreResult.error };
+        }
+        // Restore data
+        serverStore.setServers(restoreResult.data.servers);
+        serverStore.setTagColors(restoreResult.data.tagColors);
+        if (restoreResult.data.cloudflareToken) {
+            CloudflareService_1.cloudflareService.setToken(restoreResult.data.cloudflareToken);
+        }
+        // Restore SSH keys
+        let sshKeyCount = 0;
+        if (restoreResult.data.sshKeys && restoreResult.data.sshKeys.length > 0) {
+            const importResult = await SSHKeyService_1.sshKeyService.importKeysFromBackup(restoreResult.data.sshKeys);
+            sshKeyCount = importResult.imported;
+        }
+        return {
+            success: true,
+            serverCount: restoreResult.data.servers.length,
+            sshKeyCount,
+            totpEntries: restoreResult.data.totpEntries,
+            portForwards: restoreResult.data.portForwards
+        };
+    }
+    catch (error) {
+        console.error('[Box] Download backup error:', error);
+        return { success: false, error: error.message };
+    }
+});
+electron_1.ipcMain.handle('box:checkBackup', async () => {
+    try {
+        const accessToken = await BoxOAuthService_1.BoxOAuthService.getValidAccessToken();
+        if (!accessToken) {
+            return { exists: false };
+        }
+        const exists = await BoxApiService_1.BoxApiService.backupExists(accessToken);
+        if (!exists) {
+            return { exists: false };
+        }
+        const metadata = await BoxApiService_1.BoxApiService.getBackupMetadata(accessToken);
+        return { exists: true, metadata };
+    }
+    catch (error) {
+        console.error('[Box] Check backup error:', error);
+        return { exists: false };
+    }
 });
 // ==================== Cloudflare API Handlers ====================
 electron_1.ipcMain.handle('cloudflare:hasToken', async () => {
@@ -1304,6 +1684,13 @@ electron_1.ipcMain.handle('portforward:list', async () => {
 });
 electron_1.ipcMain.handle('portforward:get', async (event, tunnelId) => {
     return PortForwardingService_1.portForwardingService.getTunnel(tunnelId);
+});
+// Port Knocking IPC Handlers
+electron_1.ipcMain.handle('portknock:generateSequence', async (event, length = 4) => {
+    return PortKnockService_1.PortKnockService.generateRandomSequence(length);
+});
+electron_1.ipcMain.handle('portknock:validate', async (event, sequence) => {
+    return PortKnockService_1.PortKnockService.validateKnockSequence(sequence);
 });
 // Check for updates from GitHub
 electron_1.ipcMain.handle('app:checkForUpdates', async () => {
