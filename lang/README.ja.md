@@ -176,6 +176,7 @@
 Marix は Google ドライブへの暗号化されたエンドツーエンドバックアップをサポートしています。マスターパスワードなしでは誰もデータにアクセスできません—Google でさえもです。
 
 > 📘 **設定ガイド**: [../docs/google/GOOGLE_DRIVE_SETUP.ja.md](../docs/google/GOOGLE_DRIVE_SETUP.ja.md)
+> ℹ️ **ビルド済みバージョン**: ビルド済みリリース（AppImage、RPMなど）を使用している場合、Google認証情報はすでに含まれています。ステップ1-3をスキップして、ステップ4で直接接続できます。
 
 1. **Google Cloud プロジェクトを作成**して Drive API を有効化
 2. **OAuth 2.0 認証情報を作成**（デスクトップアプリ）

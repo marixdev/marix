@@ -176,6 +176,7 @@ Todos los respaldos usan **Argon2id** y **AES-256-GCM**:
 Marix ahora admite copias de seguridad cifradas de extremo a extremo en su Google Drive. Nadie puede acceder a sus datos—ni siquiera Google—sin su contraseña maestra.
 
 > 📘 **Guía de configuración**: [../docs/google/GOOGLE_DRIVE_SETUP.es.md](../docs/google/GOOGLE_DRIVE_SETUP.es.md)
+> ℹ️ **Versión pre-construida**: Si está utilizando la versión pre-construida (AppImage, RPM, etc.), las credenciales de Google ya están incluidas. Puede omitir los pasos 1-3 y conectarse directamente en el paso 4.
 
 1. **Crear proyecto de Google Cloud** y habilitar API de Drive
 2. **Crear credenciales OAuth 2.0** (aplicación de escritorio)

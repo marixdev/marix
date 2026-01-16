@@ -177,6 +177,8 @@ Marix 现在支持加密的端到端备份到您的 Google Drive。除了您的�
 
 > 📘 **设置指南**: [../docs/google/GOOGLE_DRIVE_SETUP.zh.md](../docs/google/GOOGLE_DRIVE_SETUP.zh.md)
 
+> ℹ️ **预构建版本**：如果您使用预构建版本（AppImage、RPM 等），Google 凭据已包含在内。您可以跳过步骤 1-3 并直接在步骤 4 连接。
+
 1. **创建 Google Cloud 项目**并启用 Drive API
 2. **创建 OAuth 2.0 凭据**（桌面应用）
 3. **下载 JSON 文件**并保存为 `google-credentials.json`

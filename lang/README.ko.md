@@ -176,6 +176,7 @@
 Marix는 이제 Google Drive에 대한 암호화된 엔드투엔드 백업을 지원합니다. 마스터 비밀번호 없이는 아무도 데이터에 접근할 수 없습니다—Google도 마찬가지입니다.
 
 > 📘 **설정 가이드**: [../docs/google/GOOGLE_DRIVE_SETUP.ko.md](../docs/google/GOOGLE_DRIVE_SETUP.ko.md)
+> ℹ️ **사전 빌드 버전**: 사전 빌드된 릴리스(AppImage, RPM 등)를 사용하는 경우 Google 인증 정보가 이미 포함되어 있습니다. 1-3단계를 건너뛰고 4단계에서 바로 연결할 수 있습니다.
 
 1. **Google Cloud 프로젝트 생성** 및 Drive API 활성화
 2. **OAuth 2.0 인증 정보 생성** (데스크톱 앱)

@@ -176,6 +176,7 @@ Alle Backups verwenden **Argon2id** und **AES-256-GCM**:
 Marix unterstützt jetzt verschlüsselte Ende-zu-Ende-Backups in Ihr Google Drive. Niemand kann auf Ihre Daten zugreifen—nicht einmal Google—ohne Ihr Master-Passwort.
 
 > 📘 **Setup-Anleitung**: [../docs/google/GOOGLE_DRIVE_SETUP.de.md](../docs/google/GOOGLE_DRIVE_SETUP.de.md)
+> ℹ️ **Vorgefertigte Version**: Wenn Sie die vorgefertigte Version (AppImage, RPM usw.) verwenden, sind die Google-Anmeldeinformationen bereits enthalten. Sie können die Schritte 1-3 überspringen und direkt in Schritt 4 verbinden.
 
 1. **Google Cloud-Projekt erstellen** und Drive-API aktivieren
 2. **OAuth 2.0-Anmeldedaten erstellen** (Desktop-App)

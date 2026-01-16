@@ -176,6 +176,7 @@ Toutes les sauvegardes utilisent **Argon2id** et **AES-256-GCM** :
 Marix prend désormais en charge les sauvegardes chiffrées de bout en bout vers votre Google Drive. Personne ne peut accéder à vos données—même pas Google—sans votre mot de passe maître.
 
 > 📘 **Guide de configuration**: [../docs/google/GOOGLE_DRIVE_SETUP.fr.md](../docs/google/GOOGLE_DRIVE_SETUP.fr.md)
+> ℹ️ **Version pré-construite** : Si vous utilisez la version pré-construite (AppImage, RPM, etc.), les identifiants Google sont déjà inclus. Vous pouvez ignorer les étapes 1-3 et vous connecter directement à l'étape 4.
 
 1. **Créer un projet Google Cloud** et activer l'API Drive
 2. **Créer des identifiants OAuth 2.0** (application de bureau)

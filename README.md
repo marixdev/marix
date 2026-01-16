@@ -317,6 +317,8 @@ Securely sync your encrypted backup to your Google Drive:
 
 > 📘 **Setup Guide**: [Google Drive Setup Documentation](docs/google/GOOGLE_DRIVE_SETUP.en.md)
 
+> ℹ️ **Pre-packaged Version**: If you're using the pre-built release (AppImage, RPM, etc.), Google credentials are already included. You can skip step 1 and connect directly.
+
 1. **Configure OAuth Credentials**:
    - Create a Google Cloud Project
    - Enable Google Drive API

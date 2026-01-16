@@ -179,6 +179,8 @@ Sao lưu an toàn lên Google Drive của bạn:
 
 > 📘 **Hướng dẫn**: [Tài liệu cấu hình Google Drive](../docs/google/GOOGLE_DRIVE_SETUP.vi.md)
 
+> ℹ️ **Phiên bản đóng gói sẵn**: Nếu bạn dùng bản build có sẵn (AppImage, RPM, v.v.), Google credentials đã được tích hợp sẵn. Bạn có thể bỏ qua bước 1 và kết nối trực tiếp.
+
 1. **Cấu hình OAuth Credentials**:
    - Tạo Google Cloud Project
    - Bật Google Drive API

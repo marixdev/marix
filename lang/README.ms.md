@@ -176,6 +176,7 @@ Semua sandaran menggunakan **Argon2id** dan **AES-256-GCM**:
 Marix kini menyokong sandaran disulitkan end-to-end ke Google Drive anda. Tiada siapa boleh mengakses data anda—walaupun Google—tanpa kata laluan induk anda.
 
 > 📘 **Panduan Persediaan**: [../docs/google/GOOGLE_DRIVE_SETUP.ms.md](../docs/google/GOOGLE_DRIVE_SETUP.ms.md)
+> ℹ️ **Versi Pra-dibina**: Jika anda menggunakan versi pra-dibina (AppImage, RPM, dll.), kelayakan Google sudah disertakan. Anda boleh melangkau langkah 1-3 dan sambung terus pada langkah 4.
 
 1. **Cipta projek Google Cloud** dan aktifkan Drive API
 2. **Cipta kelayakan OAuth 2.0** (apl desktop)

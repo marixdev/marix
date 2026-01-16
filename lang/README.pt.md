@@ -176,6 +176,7 @@ Todos os backups usam **Argon2id** e **AES-256-GCM**:
 O Marix agora suporta backups criptografados de ponta a ponta para o seu Google Drive. Ninguém pode acessar seus dados—nem mesmo o Google—sem sua senha mestra.
 
 > 📘 **Guia de Configuração**: [../docs/google/GOOGLE_DRIVE_SETUP.pt.md](../docs/google/GOOGLE_DRIVE_SETUP.pt.md)
+> ℹ️ **Versão pré-construída**: Se você estiver usando a versão pré-construída (AppImage, RPM, etc.), as credenciais do Google já estão incluídas. Você pode pular as etapas 1-3 e conectar diretamente na etapa 4.
 
 1. **Crie um projeto Google Cloud** e ative a API do Drive
 2. **Crie credenciais OAuth 2.0** (aplicativo de desktop)

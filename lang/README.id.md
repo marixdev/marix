@@ -177,6 +177,8 @@ Marix sekarang mendukung backup terenkripsi end-to-end ke Google Drive Anda. Tid
 
 > 📘 **Panduan Pengaturan**: [../docs/google/GOOGLE_DRIVE_SETUP.id.md](../docs/google/GOOGLE_DRIVE_SETUP.id.md)
 
+> ℹ️ **Versi Pre-built**: Jika Anda menggunakan rilis pre-built (AppImage, RPM, dll.), kredensial Google sudah disertakan. Anda dapat melewati langkah 1-3 dan langsung terhubung di langkah 4.
+
 1. **Buat Google Cloud Project** dan aktifkan Drive API
 2. **Buat OAuth 2.0 Credentials** (Desktop app)
 3. **Download file JSON** dan simpan sebagai `google-credentials.json`
