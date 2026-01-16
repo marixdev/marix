@@ -2054,8 +2054,11 @@ const App: React.FC = () => {
           </div>
         </div>
         
+        {/* Draggable spacer for macOS */}
+        <div className="flex-1 h-full min-w-[50px]" style={{ WebkitAppRegion: 'drag' } as any} />
+        
         {/* Tabs - not draggable */}
-        <div className="flex-1 flex items-center h-full overflow-x-auto" style={{ WebkitAppRegion: 'no-drag' } as any}>
+        <div className="flex items-center h-full overflow-x-auto max-w-[calc(100%-200px)]" style={{ WebkitAppRegion: 'no-drag' } as any}>
           {sessions.map(session => {
             const protocol = session.server.protocol || 'ssh';
             const protocolConfig = {

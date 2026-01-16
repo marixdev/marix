@@ -17,6 +17,10 @@ All notable changes to Marix SSH Client will be documented in this file.
   - Translations added for all 14 supported languages
 
 ### Fixed
+- **macOS Window Dragging**: Fixed window unable to be moved on macOS
+  - Added `trafficLightPosition` configuration for proper window controls placement
+  - Enabled `titleBarOverlay` for better window frame handling
+  - Configured proper drag region in title bar with `-webkit-app-region: drag`
 - **Quick Connect**: Fixed icon display to show protocol icons (SSH/RDP/FTP/FTPS/WSS) matching server list
 - **Session Tabs**: Updated to show protocol icons with colored backgrounds
 - **WSS Modal**: Fixed broken icon by using inline SVG instead of missing image file
@@ -34,9 +38,6 @@ All notable changes to Marix SSH Client will be documented in this file.
 - Professional OAuth callback pages with dark theme matching app design
 
 ## [1.0.3] - 2026-01-14
-=======
-## [1.0.3] - 2026-01-15
->>>>>>> 1aa9b9516fd53e0c267846048d7a50be26b4a0d3
 
 ### Added
 - **LAN File Transfer**: Send files directly to devices on local network

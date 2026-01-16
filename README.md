@@ -136,8 +136,8 @@ The app automatically detects your system RAM and adjusts encryption parameters 
 <td align="center" width="33%">
 <img src="https://img.icons8.com/fluency/96/mac-os.png" width="64"><br>
 <b>macOS</b><br>
-<a href="https://github.com/user/marix/releases/latest/download/Marix.dmg">Intel .dmg</a><br>
-<a href="https://github.com/user/marix/releases/latest/download/Marix-arm64.dmg">Apple Silicon</a>
+<a href="https://github.com/user/marix/releases/latest/download/Marix-Intel.zip">Intel .zip</a><br>
+<a href="https://github.com/user/marix/releases/latest/download/Marix-arm64.zip">Apple Silicon</a>
 </td>
 <td align="center" width="33%">
 <img src="https://img.icons8.com/fluency/96/linux.png" width="64"><br>
@@ -444,7 +444,7 @@ npm run build
 
 # Package for distribution
 npm run package:win    # Windows (.exe)
-npm run package:mac    # macOS (.dmg)
+npm run package:mac    # macOS (.zip)
 npm run package:linux  # Linux (.AppImage, .deb, .rpm)
 \`\`\`
 

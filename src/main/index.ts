@@ -154,11 +154,14 @@ function createTray() {
 }
 
 function createWindow() {
+  const isMac = process.platform === 'darwin';
+  
   mainWindow = new BrowserWindow({
     width: 1400,
     height: 900,
     frame: false,
-    titleBarStyle: 'hidden',
+    titleBarStyle: isMac ? 'hiddenInset' : 'hidden',
+    trafficLightPosition: isMac ? { x: 12, y: 12 } : undefined,
     icon: path.join(__dirname, '../../icon/i.png'),
     webPreferences: {
       nodeIntegration: true,
