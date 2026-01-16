@@ -34,6 +34,9 @@ All notable changes to Marix SSH Client will be documented in this file.
 - Professional OAuth callback pages with dark theme matching app design
 
 ## [1.0.3] - 2026-01-14
+=======
+## [1.0.3] - 2026-01-15
+>>>>>>> 1aa9b9516fd53e0c267846048d7a50be26b4a0d3
 
 ### Added
 - **LAN File Transfer**: Send files directly to devices on local network
