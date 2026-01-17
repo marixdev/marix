@@ -267,12 +267,8 @@ export class SSHKeyService {
    */
   getPrivateKey(id: string): string | null {
     const keyPath = path.join(this.keysDir, id);
-    console.log('[SSHKeyService] getPrivateKey - keyPath:', keyPath);
-    console.log('[SSHKeyService] getPrivateKey - exists:', fs.existsSync(keyPath));
     if (fs.existsSync(keyPath)) {
-      const content = fs.readFileSync(keyPath, 'utf-8');
-      console.log('[SSHKeyService] getPrivateKey - content length:', content.length);
-      return content;
+      return fs.readFileSync(keyPath, 'utf-8');
     }
     return null;
   }

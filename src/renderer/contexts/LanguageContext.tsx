@@ -61,8 +61,6 @@ export interface Translations {
   
   // Server form
   serverName: string;
-  serverAlreadyExists: string;
-  continueAddingDuplicate: string;
   hostName: string;
   displayName: string;
   hostIp: string;
@@ -459,7 +457,6 @@ export interface Translations {
   copyToClipboard: string;
   copiedToClipboard: string;
   copyPublicKeyToServer: string;
-  keyIsProtectedWithPassphrase: string;
   selectKeyToViewDetails: string;
   pleaseEnterKeyName: string;
   pleaseEnterKeyNameAndPrivateKey: string;
@@ -625,39 +622,6 @@ export interface Translations {
   securityNote: string;
   totpSecurityInfo: string;
   add: string;
-  
-  // Custom Hotkeys
-  customHotkeys: string;
-  hotkeyDescription: string;
-  addHotkey: string;
-  editHotkey: string;
-  addNewHotkey: string;
-  hotkeyKey: string;
-  hotkeyKeyHint: string;
-  command: string;
-  commandHint: string;
-  pleaseEnterKeyAndCommand: string;
-  hotkeyMustBeSingleChar: string;
-  hotkeyAlreadyExists: string;
-  hotkeyReserved: string;
-  confirmDeleteHotkey: string;
-  noHotkeysYet: string;
-  clickAddHotkey: string;
-  hotkeyUsage: string;
-  hotkeyUsage2: string;
-  hotkeyTip1: string;
-  hotkeyTip2: string;
-  hotkeyTip3: string;
-  hotkeyMacNote: string;
-  tips: string;
-  hotkeyDescriptionLabel: string;
-  reservedHotkeys: string;
-  reservedAddNewHost: string;
-  reservedCopy: string;
-  reservedToggleLAN: string;
-  reservedSwitchTerminalSFTP: string;
-  reservedLocalTerminal: string;
-  reservedPaste: string;
   
   // Port Forwarding
   portForwarding: string;

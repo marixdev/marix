@@ -145,9 +145,15 @@ const AddServerModal: React.FC<Props> = ({ server, existingTags = [], onSave, on
 
   const handleKeyFileSelect = async () => {
     try {
-      const result = await ipcRenderer.invoke('sshkey:selectFile');
+      const result = await ipcRenderer.invoke('dialog:openFile', {
+        title: 'Select Private Key',
+        filters: [
+          { name: 'All Files', extensions: ['*'] },
+          { name: 'PEM Files', extensions: ['pem'] },
+        ],
+      });
       
-      if (result && result.success && result.content) {
+      if (result && result.content) {
         setData(prev => ({ ...prev, privateKey: result.content }));
       }
     } catch (err) {
@@ -217,7 +223,7 @@ const AddServerModal: React.FC<Props> = ({ server, existingTags = [], onSave, on
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     
     // WSS only requires URL and name
@@ -267,38 +273,6 @@ const AddServerModal: React.FC<Props> = ({ server, existingTags = [], onSave, on
       if (data.knockSequence.length < 3) {
         alert('Port knocking requires at least 3 ports in the sequence');
         return;
-      }
-    }
-    
-    // Auto-save private key to SSH Key Manager if it's not from keychain
-    if (data.authType === 'key' && data.privateKey && !data.sshKeyId) {
-      try {
-        // Check if this key is already in the keychain by checking all keys
-        const existingKeys = sshKeys;
-        let keyAlreadyExists = false;
-        
-        for (const key of existingKeys) {
-          const existingPrivateKey = await ipcRenderer.invoke('sshkey:getPrivate', key.id);
-          if (existingPrivateKey && existingPrivateKey.trim() === data.privateKey.trim()) {
-            keyAlreadyExists = true;
-            data.sshKeyId = key.id; // Link to existing key
-            break;
-          }
-        }
-        
-        // If key doesn't exist, import it
-        if (!keyAlreadyExists) {
-          const keyName = `${data.name || data.host}-key-${Date.now()}`;
-          const result = await ipcRenderer.invoke('sshkey:import', keyName, data.privateKey, `Imported from ${data.name || data.host}`);
-          
-          if (result.success && result.key) {
-            data.sshKeyId = result.key.id;
-            console.log('[AddServerModal] Auto-saved private key to keychain:', result.key.id);
-          }
-        }
-      } catch (err) {
-        console.error('[AddServerModal] Failed to auto-save key:', err);
-        // Continue anyway - key will still work for this server
       }
     }
     

@@ -16,7 +16,7 @@
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue" alt="Platform">
   <img src="https://img.shields.io/badge/license-GPL--3.0-blue" alt="License">
   <img src="https://img.shields.io/badge/zero--knowledge-🔒-critical" alt="Zero Knowledge">
-  <img src="https://img.shields.io/badge/version-1.0.6-orange" alt="Version">
+  <img src="https://img.shields.io/badge/version-1.0.4-orange" alt="Version">
 </p>
 
 <p align="center">
@@ -255,32 +255,6 @@ The app automatically detects your system RAM and adjusts encryption parameters 
 - Import from host
 - Remove untrusted hosts
 - Verify host authenticity
-
-</details>
-
-<details>
-<summary><b>Custom Hotkeys</b></summary>
-
-*Create keyboard shortcuts to quickly execute commands in SSH terminal.*
-
-- **Quick command execution** - Press `Ctrl+Shift+[key]` (or `Cmd+Shift+[key]` on Mac) to instantly run commands
-- **Custom shortcuts** - Assign any single character (A-Z, 0-9) to your frequently used commands
-- **Examples**:
-  - `Ctrl+Shift+L` → `ls -la` (list files)
-  - `Ctrl+Shift+D` → `docker ps` (list containers)
-  - `Ctrl+Shift+S` → `sudo systemctl status nginx` (check nginx status)
-- **Auto-execute** - Commands are typed and executed automatically (with Enter)
-- **Local storage** - Hotkeys stored locally, never uploaded
-- **Manage easily** - Add, edit, or delete hotkeys from the Hotkeys menu
-
-**How to use:**
-1. Open **Hotkeys** menu from the sidebar
-2. Click **Add Hotkey**
-3. Enter a key (single character, e.g., `L`)
-4. Enter the command (e.g., `ls -la`)
-5. Optionally add a description
-6. Click **Add**
-7. In SSH terminal, press `Ctrl+Shift+L` to execute the command
 
 </details>
 

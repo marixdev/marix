@@ -36,8 +36,6 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const electron_1 = require("electron");
 const path = __importStar(require("path"));
 const fs = __importStar(require("fs"));
-const dns = __importStar(require("dns"));
-const util_1 = require("util");
 const NativeSSHManager_1 = require("./services/NativeSSHManager");
 const SSHConnectionManager_1 = require("./services/SSHConnectionManager");
 const SFTPManager_1 = require("./services/SFTPManager");
@@ -321,12 +319,10 @@ electron_1.ipcMain.handle('window:close', () => {
 });
 // Dialog handler for file selection
 electron_1.ipcMain.handle('dialog:openFile', async (event, options) => {
-    // Ensure 'All Files' is always first option for files without extension
-    const filters = options.filters || [{ name: 'All Files', extensions: ['*'] }];
     const result = await electron_1.dialog.showOpenDialog(mainWindow, {
         title: options.title || 'Select File',
-        filters: filters,
-        properties: ['openFile', 'showHiddenFiles'],
+        filters: options.filters || [],
+        properties: ['openFile'],
     });
     if (result.canceled || result.filePaths.length === 0) {
         return null;
@@ -656,21 +652,6 @@ electron_1.ipcMain.handle('sftp:deleteDir', async (event, connectionId, remotePa
     catch (error) {
         console.error('[Main] sftp:deleteDir error:', error.message);
         return { success: false, error: error.message };
-    }
-});
-// DNS resolution handler
-const dnsLookup = (0, util_1.promisify)(dns.lookup);
-electron_1.ipcMain.handle('dns:resolve', async (event, hostname) => {
-    try {
-        // Try to resolve hostname to IP
-        const result = await dnsLookup(hostname, { family: 0 }); // 0 = IPv4 or IPv6
-        return { success: true, ip: result.address, family: result.family };
-    }
-    catch (error) {
-        // If resolution fails, return the original hostname
-        // (might be already an IP or invalid hostname)
-        console.log('[DNS] Failed to resolve', hostname, ':', error.message);
-        return { success: false, hostname, error: error.message };
     }
 });
 // Server storage handlers
@@ -1613,6 +1594,42 @@ electron_1.ipcMain.handle('cloudflare:updateDNSRecord', async (event, zoneId, re
 electron_1.ipcMain.handle('cloudflare:deleteDNSRecord', async (event, zoneId, recordId) => {
     return await CloudflareService_1.cloudflareService.deleteDNSRecord(zoneId, recordId);
 });
+// DNS resolution for server hosts (domain to IP)
+electron_1.ipcMain.handle('dns:resolve', async (event, hostname) => {
+    const dns = require('dns').promises;
+    try {
+        // Check if it's already an IP address (IPv4 or IPv6)
+        const ipv4Regex = /^(\d{1,3}\.){3}\d{1,3}$/;
+        const ipv6Regex = /^([0-9a-fA-F]{0,4}:){2,7}[0-9a-fA-F]{0,4}$/;
+        if (ipv4Regex.test(hostname)) {
+            return { success: true, ipv4: [hostname], ipv6: [], isIp: true };
+        }
+        if (ipv6Regex.test(hostname)) {
+            return { success: true, ipv4: [], ipv6: [hostname], isIp: true };
+        }
+        // Resolve domain to IP addresses
+        const ipv4Results = [];
+        const ipv6Results = [];
+        try {
+            const addresses = await dns.resolve4(hostname);
+            ipv4Results.push(...addresses);
+        }
+        catch (e) {
+            // No A records
+        }
+        try {
+            const addresses = await dns.resolve6(hostname);
+            ipv6Results.push(...addresses);
+        }
+        catch (e) {
+            // No AAAA records
+        }
+        return { success: true, ipv4: ipv4Results, ipv6: ipv6Results, isIp: false };
+    }
+    catch (error) {
+        return { success: false, error: error.message };
+    }
+});
 // ==================== WHOIS Handlers ====================
 electron_1.ipcMain.handle('whois:lookup', async (event, domain) => {
     return await WhoisService_1.whoisService.lookup(domain);
@@ -1726,10 +1743,7 @@ electron_1.ipcMain.handle('sshkey:get', async (event, id) => {
     return SSHKeyService_1.sshKeyService.getKey(id);
 });
 electron_1.ipcMain.handle('sshkey:getPrivate', async (event, id) => {
-    console.log('[sshkey:getPrivate] Request for key ID:', id);
-    const privateKey = SSHKeyService_1.sshKeyService.getPrivateKey(id);
-    console.log('[sshkey:getPrivate] Result:', privateKey ? 'Found (' + privateKey.length + ' chars)' : 'Not found');
-    return privateKey;
+    return SSHKeyService_1.sshKeyService.getPrivateKey(id);
 });
 electron_1.ipcMain.handle('sshkey:delete', async (event, id) => {
     return SSHKeyService_1.sshKeyService.deleteKey(id);
@@ -1800,8 +1814,9 @@ electron_1.ipcMain.handle('sshkey:selectFile', async () => {
     try {
         const result = await electron_1.dialog.showOpenDialog(mainWindow, {
             title: 'Select SSH Private Key File',
-            properties: ['openFile', 'showHiddenFiles'],
+            properties: ['openFile'],
             filters: [
+                { name: 'SSH Key Files', extensions: ['pem', 'key', 'ppk', ''] },
                 { name: 'All Files', extensions: ['*'] },
             ],
         });

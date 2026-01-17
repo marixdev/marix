@@ -43,8 +43,6 @@ const SSHKeyManager: React.FC<Props> = ({ onClose, onSelectKey, selectMode = fal
   // Selected key for viewing
   const [selectedKey, setSelectedKey] = useState<SSHKeyInfo | null>(null);
   const [showPublicKey, setShowPublicKey] = useState(false);
-  const [selectedPrivateKey, setSelectedPrivateKey] = useState<string>('');
-  const [keyPassphrase, setKeyPassphrase] = useState<string | null>(null);
   
   // Export dropdown
   const [exportDropdownKey, setExportDropdownKey] = useState<string | null>(null);
@@ -166,23 +164,7 @@ const SSHKeyManager: React.FC<Props> = ({ onClose, onSelectKey, selectMode = fal
         onSelectKey(key.id, privateKey);
       }
     } else {
-      // Clear previous state first
-      setSelectedPrivateKey('');
-      setKeyPassphrase(null);
       setSelectedKey(key);
-      
-      // Load private key
-      const privateKey = await ipcRenderer.invoke('sshkey:getPrivate', key.id);
-      console.log('[SSHKeyManager] Loaded private key for', key.name, ':', privateKey ? 'success' : 'failed');
-      setSelectedPrivateKey(privateKey || '');
-      
-      // Check if key has passphrase by looking for encryption header
-      if (privateKey) {
-        const hasPassphrase = privateKey.includes('ENCRYPTED') || privateKey.includes('Proc-Type: 4,ENCRYPTED');
-        setKeyPassphrase(hasPassphrase ? '***' : null);
-      } else {
-        setKeyPassphrase(null);
-      }
     }
   };
 
@@ -264,7 +246,7 @@ const SSHKeyManager: React.FC<Props> = ({ onClose, onSelectKey, selectMode = fal
                   {keys.map(key => (
                     <div
                       key={key.id}
-                      onClick={() => { handleSelect(key); setShowGenerate(false); setShowImport(false); }}
+                      onClick={() => { setSelectedKey(key); setShowGenerate(false); setShowImport(false); }}
                       className={`rounded-xl p-4 cursor-pointer transition group ${
                         selectedKey?.id === key.id
                           ? appTheme === 'light' 
@@ -504,13 +486,6 @@ const SSHKeyManager: React.FC<Props> = ({ onClose, onSelectKey, selectMode = fal
                         <label className={`block text-sm mb-1 ${appTheme === 'light' ? 'text-gray-600' : 'text-gray-400'}`}>{t('createdAt')}</label>
                         <p className={appTheme === 'light' ? 'text-gray-900' : 'text-white'}>{new Date(selectedKey.createdAt).toLocaleString()}</p>
                       </div>
-                      {keyPassphrase && (
-                        <div>
-                          <label className={`block text-sm mb-1 ${appTheme === 'light' ? 'text-gray-600' : 'text-gray-400'}`}>{t('passphrase')}</label>
-                          <p className="text-purple-600 font-mono text-sm">{keyPassphrase}</p>
-                          <p className={`text-xs mt-1 ${appTheme === 'light' ? 'text-gray-500' : 'text-gray-500'}`}>{t('keyIsProtectedWithPassphrase')}</p>
-                        </div>
-                      )}
                       <div>
                         <label className={`block text-sm mb-1 ${appTheme === 'light' ? 'text-gray-600' : 'text-gray-400'}`}>{t('publicKey')}</label>
                         <div className="relative">
@@ -522,26 +497,6 @@ const SSHKeyManager: React.FC<Props> = ({ onClose, onSelectKey, selectMode = fal
                           />
                           <button
                             onClick={() => copyToClipboard(selectedKey.publicKey)}
-                            className={`absolute top-2 right-2 p-1.5 rounded transition ${appTheme === 'light' ? 'bg-gray-200 text-gray-600 hover:text-gray-900' : 'bg-navy-700 text-gray-400 hover:text-white'}`}
-                            title={t('copyToClipboard')}
-                          >
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                            </svg>
-                          </button>
-                        </div>
-                      </div>
-                      <div>
-                        <label className={`block text-sm mb-1 ${appTheme === 'light' ? 'text-gray-600' : 'text-gray-400'}`}>{t('privateKey')}</label>
-                        <div className="relative">
-                          <textarea
-                            readOnly
-                            value={selectedPrivateKey}
-                            rows={8}
-                            className={`w-full px-3 py-2 rounded-lg font-mono text-xs focus:outline-none ${appTheme === 'light' ? 'bg-gray-50 border border-gray-300 text-gray-900' : 'bg-navy-900 border border-navy-600 text-white'}`}
-                          />
-                          <button
-                            onClick={() => copyToClipboard(selectedPrivateKey)}
                             className={`absolute top-2 right-2 p-1.5 rounded transition ${appTheme === 'light' ? 'bg-gray-200 text-gray-600 hover:text-gray-900' : 'bg-navy-700 text-gray-400 hover:text-white'}`}
                             title={t('copyToClipboard')}
                           >
@@ -846,13 +801,6 @@ const SSHKeyManager: React.FC<Props> = ({ onClose, onSelectKey, selectMode = fal
                     <label className="block text-sm text-gray-400 mb-1">{t('createdAt')}</label>
                     <p className="text-white">{new Date(selectedKey.createdAt).toLocaleString()}</p>
                   </div>
-                  {keyPassphrase && (
-                    <div>
-                      <label className="block text-sm text-gray-400 mb-1">{t('passphrase')}</label>
-                      <p className="text-purple-400 font-mono text-sm">{keyPassphrase}</p>
-                      <p className="text-xs text-gray-500 mt-1">{t('keyIsProtectedWithPassphrase')}</p>
-                    </div>
-                  )}
                   <div>
                     <label className="block text-sm text-gray-400 mb-1">{t('publicKey')}</label>
                     <div className="relative">
@@ -864,26 +812,6 @@ const SSHKeyManager: React.FC<Props> = ({ onClose, onSelectKey, selectMode = fal
                       />
                       <button
                         onClick={() => copyToClipboard(selectedKey.publicKey)}
-                        className="absolute top-2 right-2 p-1.5 bg-navy-700 text-gray-400 hover:text-white rounded transition"
-                        title={t('copyToClipboard')}
-                      >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                        </svg>
-                      </button>
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-sm text-gray-400 mb-1">{t('privateKey')}</label>
-                    <div className="relative">
-                      <textarea
-                        readOnly
-                        value={selectedPrivateKey}
-                        rows={8}
-                        className="w-full px-3 py-2 bg-navy-900 border border-navy-600 rounded-lg text-white font-mono text-xs focus:outline-none"
-                      />
-                      <button
-                        onClick={() => copyToClipboard(selectedPrivateKey)}
                         className="absolute top-2 right-2 p-1.5 bg-navy-700 text-gray-400 hover:text-white rounded transition"
                         title={t('copyToClipboard')}
                       >
