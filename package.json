@@ -1,6 +1,6 @@
 {
   "name": "marix",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "description": "Marix - Modern Zero-Knowledge SSH Client with SFTP, FTP, RDP, WSS support",
   "main": "dist/main/index.js",
   "homepage": "https://github.com/marixdev/marix",

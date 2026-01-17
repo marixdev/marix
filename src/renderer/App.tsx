@@ -16,6 +16,7 @@ import LANFileTransferPage from './components/LANFileTransferPage';
 import PairCodePopup from './components/PairCodePopup';
 import KnownHostsPage from './components/KnownHostsPage';
 import TwoFactorPage from './components/TwoFactorPage';
+import HotkeyPage from './components/HotkeyPage';
 import PortForwardingPage from './components/PortForwardingPage';
 import { BackupModal } from './components/BackupModal';
 import { useTerminalContext } from './contexts/TerminalContext';
@@ -36,6 +37,7 @@ export interface Server {
   domain?: string;  // Windows domain for RDP
   wssUrl?: string;  // WebSocket URL for WSS connections
   tags?: string[];  // Tags for organizing servers
+  sshKeyId?: string;  // ID of SSH key in keychain (if using key from SSH Key Manager)
   knockEnabled?: boolean;  // Enable port knocking
   knockSequence?: number[];  // Port sequence for knocking (e.g., [7000, 8000, 9000])
 }
@@ -66,7 +68,7 @@ const App: React.FC = () => {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [currentTheme, setCurrentTheme] = useState('Dracula');
   const [appTheme, setAppTheme] = useState<'dark' | 'light'>('dark');
-  const [activeMenu, setActiveMenu] = useState<'hosts' | 'settings' | 'cloudflare' | 'nettools' | 'tools' | 'sshkeys' | 'knownhosts' | 'twofactor' | 'portforward' | 'about' | 'sendfiles'>('hosts');
+  const [activeMenu, setActiveMenu] = useState<'hosts' | 'settings' | 'cloudflare' | 'nettools' | 'tools' | 'sshkeys' | 'knownhosts' | 'twofactor' | 'hotkeys' | 'portforward' | 'about' | 'sendfiles'>('hosts');
   const [activeTag, setActiveTag] = useState<string | null>(null);  // Filter by tag
   const [tagSearch, setTagSearch] = useState('');  // Search tags
   const [tagColors, setTagColors] = useState<{ [key: string]: string }>({});  // Tag colors
@@ -164,7 +166,7 @@ const App: React.FC = () => {
     hasUpdate?: boolean;
   }>({ checking: false });
   const [showUpdateNotification, setShowUpdateNotification] = useState(false);
-  const APP_VERSION = '1.0.5';
+  const APP_VERSION = '1.0.6';
   const APP_AUTHOR = 'Đạt Vũ (Marix)';
   const GITHUB_REPO = 'https://github.com/marixdev/marix';
   
@@ -1999,6 +2001,64 @@ const App: React.FC = () => {
   };
 
   const handleAddServer = async (data: Omit<Server, 'id'>) => {
+    // Resolve hostname to IP for accurate duplicate detection
+    let resolvedIP = data.host;
+    try {
+      const dnsResult = await ipcRenderer.invoke('dns:resolve', data.host);
+      if (dnsResult.success && dnsResult.ip) {
+        resolvedIP = dnsResult.ip;
+        console.log('[App] Resolved', data.host, '→', resolvedIP);
+      }
+    } catch (err) {
+      console.log('[App] DNS resolution failed for', data.host, ', using hostname as-is');
+    }
+    
+    // Check for duplicate server
+    // Compare resolved IPs instead of hostnames to catch domain/subdomain duplicates
+    const duplicates = await Promise.all(
+      servers.map(async (s) => {
+        let existingIP = s.host;
+        try {
+          const dnsResult = await ipcRenderer.invoke('dns:resolve', s.host);
+          if (dnsResult.success && dnsResult.ip) {
+            existingIP = dnsResult.ip;
+          }
+        } catch (err) {
+          // Keep original hostname if resolution fails
+        }
+        
+        return {
+          server: s,
+          resolvedIP: existingIP,
+          isDuplicate: 
+            existingIP === resolvedIP && 
+            s.port === data.port && 
+            s.username === data.username &&
+            s.protocol === data.protocol
+        };
+      })
+    );
+    
+    const duplicate = duplicates.find(d => d.isDuplicate);
+    
+    if (duplicate) {
+      const s = duplicate.server;
+      const ipInfo = duplicate.resolvedIP !== s.host ? ` (${duplicate.resolvedIP})` : '';
+      
+      const confirmOverwrite = confirm(
+        `${t('serverAlreadyExists')}\n\n` +
+        `${t('serverName')}: ${s.name}\n` +
+        `${t('hostIp')}: ${s.host}${ipInfo}:${s.port}\n` +
+        `${t('username')}: ${s.username}\n` +
+        `${t('protocol')}: ${s.protocol?.toUpperCase()}\n\n` +
+        t('continueAddingDuplicate')
+      );
+      
+      if (!confirmOverwrite) {
+        return; // User cancelled, don't add
+      }
+    }
+    
     try {
       // Save to storage
       const result = await ipcRenderer.invoke('servers:add', data);
@@ -2024,6 +2084,39 @@ const App: React.FC = () => {
   const handleSaveServer = async (data: Server) => {
     if (data.id) {
       // Update existing server
+      
+      // Auto-save private key to SSH Key Manager if switching to key auth
+      if (data.authType === 'key' && data.privateKey && !data.sshKeyId) {
+        try {
+          // Check if this key is already in the keychain
+          const allKeys = await ipcRenderer.invoke('sshkey:list');
+          let keyAlreadyExists = false;
+          
+          for (const key of allKeys) {
+            const existingPrivateKey = await ipcRenderer.invoke('sshkey:getPrivate', key.id);
+            if (existingPrivateKey && existingPrivateKey.trim() === data.privateKey.trim()) {
+              keyAlreadyExists = true;
+              data.sshKeyId = key.id; // Link to existing key
+              break;
+            }
+          }
+          
+          // If key doesn't exist, import it
+          if (!keyAlreadyExists) {
+            const keyName = `${data.name || data.host}-key-${Date.now()}`;
+            const result = await ipcRenderer.invoke('sshkey:import', keyName, data.privateKey, `Imported from ${data.name || data.host}`);
+            
+            if (result.success && result.key) {
+              data.sshKeyId = result.key.id;
+              console.log('[App] Auto-saved private key to keychain:', result.key.id);
+            }
+          }
+        } catch (err) {
+          console.error('[App] Failed to auto-save key:', err);
+          // Continue anyway - key will still work for this server
+        }
+      }
+      
       try {
         const result = await ipcRenderer.invoke('servers:update', data);
         if (result.success) {
@@ -2470,6 +2563,22 @@ const App: React.FC = () => {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
                 </svg>
                 <span className="text-sm font-medium">{t('twoFactorAuth') || '2FA'}</span>
+              </button>
+              
+              {/* Custom Hotkeys */}
+              <button
+                onClick={() => { setActiveMenu('hotkeys'); setActiveSessionId(null); }}
+                className={`w-full px-3 py-2.5 rounded-lg flex items-center gap-3 mb-1 transition ${
+                  activeMenu === 'hotkeys' && !activeSessionId
+                    ? 'bg-indigo-600 !text-white'
+                    : appTheme === 'light' ? 'text-gray-600 hover:text-gray-900 hover:bg-gray-100' : 'text-gray-400 hover:text-white hover:bg-navy-700'
+                }`}
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12H9m6 4H9" />
+                </svg>
+                <span className="text-sm font-medium">{t('customHotkeys') || 'Hotkeys'}</span>
               </button>
             </div>
           </div>
@@ -3927,6 +4036,11 @@ const App: React.FC = () => {
           {/* 2FA Authenticator Page */}
           {activeMenu === 'twofactor' && !activeSessionId && (
             <TwoFactorPage appTheme={appTheme} />
+          )}
+
+          {/* Custom Hotkeys Page */}
+          {activeMenu === 'hotkeys' && !activeSessionId && (
+            <HotkeyPage appTheme={appTheme} />
           )}
 
           {/* About Page */}

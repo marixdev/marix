@@ -1,6 +1,8 @@
 import { app, BrowserWindow, ipcMain, dialog, shell, Tray, Menu, nativeImage } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
+import * as dns from 'dns';
+import { promisify } from 'util';
 import { NativeSSHManager } from './services/NativeSSHManager';
 import { SSHConnectionManager } from './services/SSHConnectionManager';
 import { SFTPManager } from './services/SFTPManager';
@@ -311,10 +313,12 @@ ipcMain.handle('window:close', () => {
 
 // Dialog handler for file selection
 ipcMain.handle('dialog:openFile', async (event, options) => {
+  // Ensure 'All Files' is always first option for files without extension
+  const filters = options.filters || [{ name: 'All Files', extensions: ['*'] }];
   const result = await dialog.showOpenDialog(mainWindow!, {
     title: options.title || 'Select File',
-    filters: options.filters || [],
-    properties: ['openFile'],
+    filters: filters,
+    properties: ['openFile', 'showHiddenFiles'],
   });
   
   if (result.canceled || result.filePaths.length === 0) {
@@ -658,6 +662,21 @@ ipcMain.handle('sftp:deleteDir', async (event, connectionId, remotePath) => {
   } catch (error: any) {
     console.error('[Main] sftp:deleteDir error:', error.message);
     return { success: false, error: error.message };
+  }
+});
+
+// DNS resolution handler
+const dnsLookup = promisify(dns.lookup);
+ipcMain.handle('dns:resolve', async (event, hostname: string) => {
+  try {
+    // Try to resolve hostname to IP
+    const result = await dnsLookup(hostname, { family: 0 }); // 0 = IPv4 or IPv6
+    return { success: true, ip: result.address, family: result.family };
+  } catch (error: any) {
+    // If resolution fails, return the original hostname
+    // (might be already an IP or invalid hostname)
+    console.log('[DNS] Failed to resolve', hostname, ':', error.message);
+    return { success: false, hostname, error: error.message };
   }
 });
 
@@ -1730,45 +1749,6 @@ ipcMain.handle('cloudflare:deleteDNSRecord', async (event, zoneId: string, recor
   return await cloudflareService.deleteDNSRecord(zoneId, recordId);
 });
 
-// DNS resolution for server hosts (domain to IP)
-ipcMain.handle('dns:resolve', async (event, hostname: string) => {
-  const dns = require('dns').promises;
-  try {
-    // Check if it's already an IP address (IPv4 or IPv6)
-    const ipv4Regex = /^(\d{1,3}\.){3}\d{1,3}$/;
-    const ipv6Regex = /^([0-9a-fA-F]{0,4}:){2,7}[0-9a-fA-F]{0,4}$/;
-    
-    if (ipv4Regex.test(hostname)) {
-      return { success: true, ipv4: [hostname], ipv6: [], isIp: true };
-    }
-    if (ipv6Regex.test(hostname)) {
-      return { success: true, ipv4: [], ipv6: [hostname], isIp: true };
-    }
-    
-    // Resolve domain to IP addresses
-    const ipv4Results: string[] = [];
-    const ipv6Results: string[] = [];
-    
-    try {
-      const addresses = await dns.resolve4(hostname);
-      ipv4Results.push(...addresses);
-    } catch (e) {
-      // No A records
-    }
-    
-    try {
-      const addresses = await dns.resolve6(hostname);
-      ipv6Results.push(...addresses);
-    } catch (e) {
-      // No AAAA records
-    }
-    
-    return { success: true, ipv4: ipv4Results, ipv6: ipv6Results, isIp: false };
-  } catch (error: any) {
-    return { success: false, error: error.message };
-  }
-});
-
 // ==================== WHOIS Handlers ====================
 
 ipcMain.handle('whois:lookup', async (event, domain: string) => {
@@ -1913,7 +1893,10 @@ ipcMain.handle('sshkey:get', async (event, id: string) => {
 });
 
 ipcMain.handle('sshkey:getPrivate', async (event, id: string) => {
-  return sshKeyService.getPrivateKey(id);
+  console.log('[sshkey:getPrivate] Request for key ID:', id);
+  const privateKey = sshKeyService.getPrivateKey(id);
+  console.log('[sshkey:getPrivate] Result:', privateKey ? 'Found (' + privateKey.length + ' chars)' : 'Not found');
+  return privateKey;
 });
 
 ipcMain.handle('sshkey:delete', async (event, id: string) => {
@@ -1997,9 +1980,8 @@ ipcMain.handle('sshkey:selectFile', async () => {
   try {
     const result = await dialog.showOpenDialog(mainWindow!, {
       title: 'Select SSH Private Key File',
-      properties: ['openFile'],
+      properties: ['openFile', 'showHiddenFiles'],
       filters: [
-        { name: 'SSH Key Files', extensions: ['pem', 'key', 'ppk', ''] },
         { name: 'All Files', extensions: ['*'] },
       ],
     });

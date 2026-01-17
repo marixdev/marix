@@ -4,6 +4,7 @@ import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
 import { getThemeByName } from '../themes';
+import { getCustomHotkeys, HotkeyEntry } from './HotkeyPage';
 
 interface Props {
   connectionId: string;
@@ -20,6 +21,52 @@ const terminals = new Map<string, {
 
 const Terminal: React.FC<Props> = ({ connectionId, theme = 'Dracula' }) => {
   const mountRef = useRef<HTMLDivElement>(null);
+
+  // Global hotkey handler for this terminal instance
+  useEffect(() => {
+    const handleGlobalHotkey = (e: KeyboardEvent) => {
+      // Only handle if this terminal's container is in the DOM and visible
+      if (!mountRef.current || !document.body.contains(mountRef.current)) return;
+      
+      // Check if terminal container or its children have focus
+      const activeElement = document.activeElement;
+      const isTerminalFocused = mountRef.current.contains(activeElement);
+      
+      if (!isTerminalFocused) return;
+      
+      // Check for Ctrl+Shift+[key] (Windows/Linux) or Cmd+Shift+[key] (Mac)
+      const isModifierPressed = (e.ctrlKey || e.metaKey) && e.shiftKey && !e.altKey;
+      
+      if (isModifierPressed) {
+        const pressedKey = e.key.toLowerCase();
+        const hotkeys = getCustomHotkeys();
+        console.log('[Terminal] Hotkey check:', pressedKey, 'available hotkeys:', hotkeys.length);
+        const hotkey = hotkeys.find(h => h.key.toLowerCase() === pressedKey);
+        
+        if (hotkey) {
+          e.preventDefault();
+          e.stopPropagation();
+          
+          const t = terminals.get(connectionId);
+          console.log('[Terminal] Found hotkey, terminal ready:', t?.isShellReady);
+          if (t && t.isShellReady) {
+            // Send command to terminal with Enter key
+            ipcRenderer.invoke('ssh:writeShell', connectionId, hotkey.command + '\r');
+            console.log('[Terminal] Hotkey executed:', pressedKey, '->', hotkey.command);
+          }
+        }
+      }
+    };
+    
+    // Use capture phase to intercept before other handlers
+    window.addEventListener('keydown', handleGlobalHotkey, true);
+    console.log('[Terminal] Global hotkey listener added for:', connectionId);
+    
+    return () => {
+      window.removeEventListener('keydown', handleGlobalHotkey, true);
+      console.log('[Terminal] Global hotkey listener removed for:', connectionId);
+    };
+  }, [connectionId]);
 
   useEffect(() => {
     if (!mountRef.current) return;
