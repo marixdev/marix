@@ -52,32 +52,25 @@ const SALT_LENGTH = 32;
 const PASSWORD_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?~`]).{10,}$/;
 /**
  * Get optimal Argon2 memory cost based on system RAM
- * Security-first approach with defensible minimums:
- * - >= 16GB RAM: 512 MB (maximum security)
- * - >= 8GB RAM: 256 MB (high security - OWASP recommended)
- * - >= 4GB RAM: 128 MB (medium security)
- * - < 4GB RAM: 64 MB (minimum defensible floor)
- *
- * Note: OWASP 2024 recommends minimum 47MB, we use 64MB as our floor
+ * - >= 8GB RAM: 64 MB (high security)
+ * - >= 4GB RAM: 32 MB (medium security)
+ * - < 4GB RAM: 16 MB (low memory mode)
  */
 function getOptimalMemoryCost() {
     const totalMemoryGB = os.totalmem() / (1024 * 1024 * 1024);
-    if (totalMemoryGB >= 16) {
-        return 524288; // 512 MB - maximum security for high-end machines
-    }
-    else if (totalMemoryGB >= 8) {
-        return 262144; // 256 MB - OWASP recommended for modern machines
+    if (totalMemoryGB >= 8) {
+        return 65536; // 64 MB - recommended for modern machines
     }
     else if (totalMemoryGB >= 4) {
-        return 131072; // 128 MB - balanced security
+        return 32768; // 32 MB - balanced
     }
     else {
-        return 65536; // 64 MB - minimum defensible floor (above OWASP 47MB)
+        return 16384; // 16 MB - for low memory machines
     }
 }
 const getArgon2Options = () => ({
     memoryCost: getOptimalMemoryCost(),
-    timeCost: 4, // 4 iterations (OWASP recommended: 3-5)
+    timeCost: 3, // 3 iterations
     parallelism: Math.min(4, os.cpus().length), // Use available cores, max 4
     hashLength: KEY_LENGTH,
 });

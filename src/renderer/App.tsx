@@ -2244,15 +2244,10 @@ const App: React.FC = () => {
     ));
   };
 
-  // Detect macOS for traffic light buttons padding
-  const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
-
   return (
     <div className="flex flex-col h-screen bg-navy-900 text-gray-100">
       {/* Custom Title Bar with Tabs */}
       <div className="bg-navy-800 border-b border-navy-700 flex items-center h-10 select-none" style={{ WebkitAppRegion: 'drag' } as any}>
-        {/* macOS traffic light buttons spacing */}
-        {isMac && <div className="w-[70px] h-full flex-shrink-0" />}
         {/* Sidebar toggle + App name - not draggable */}
         <div className="flex items-center h-full" style={{ WebkitAppRegion: 'no-drag' } as any}>
           <button

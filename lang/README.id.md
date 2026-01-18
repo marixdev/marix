@@ -15,8 +15,8 @@
 <p align="center">
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue" alt="Platform">
   <img src="https://img.shields.io/badge/license-GPL--3.0-blue" alt="License">
-  <img src="https://img.shields.io/badge/client--side%20encryption-🔒-critical" alt="Client-Side Encryption">
-  <img src="https://img.shields.io/badge/version-1.0.7-orange" alt="Version">
+  <img src="https://img.shields.io/badge/zero--knowledge-🔒-critical" alt="Zero Knowledge">
+  <img src="https://img.shields.io/badge/version-1.0.4-orange" alt="Version">
 </p>
 
 <p align="center">
@@ -63,39 +63,9 @@
 
 ---
 
-## 🔒 Arsitektur Enkripsi Sisi Klien
+## 🔒 Arsitektur Zero-Knowledge
 
 > **"Kunci Anda. Server Anda. Privasi Anda."**
-
-### Model Ancaman
-
-Marix dirancang untuk asumsi keamanan berikut:
-
-> ⚠️ **Marix mengasumsikan lingkungan host lokal yang tidak dikompromikan.**  
-> Tidak mencoba mempertahankan diri dari adversary tingkat OS yang berbahaya atau runtime yang dikompromikan.
-
-**Dalam cakupan (dilindungi dari):**
-- Pencurian file backup tanpa password
-- Serangan brute-force password pada backup terenkripsi
-- Manipulasi data dalam transit atau penyimpanan (terdeteksi via AEAD)
-- Akses penyedia cloud ke data Anda (enkripsi sisi klien)
-
-**Di luar cakupan (tidak dilindungi dari):**
-- Malware dengan akses root/admin di perangkat Anda
-- Akses fisik ke perangkat yang tidak terkunci dengan aplikasi berjalan
-- Keylogger atau malware tangkapan layar
-- Sistem operasi atau Electron runtime yang dikompromikan
-
-### Apa yang Marix TIDAK Lakukan
-
-| ❌ | Deskripsi |
-|----|-----------|
-| **Tidak ada penyimpanan kunci jarak jauh** | Kunci privat tidak pernah meninggalkan perangkat Anda |
-| **Tidak ada escrow kunci** | Kami tidak dapat memulihkan kunci Anda dalam keadaan apapun |
-| **Tidak ada pemulihan tanpa password** | Password hilang = backup hilang (sesuai desain) |
-| **Tidak ada panggilan jaringan saat enkripsi** | Operasi kripto 100% offline |
-| **Tidak ada server cloud** | Kami tidak mengoperasikan infrastruktur apapun |
-| **Tidak ada telemetry** | Nol analytics, nol tracking, nol pengumpulan data |
 
 ### Prinsip inti
 
@@ -109,10 +79,10 @@ Marix dirancang untuk asumsi keamanan berikut:
 ### Teknologi enkripsi
 
 | | Komponen | Teknologi | Deskripsi |
-|---|----------|-----------|-----------|
+|---|-----------|-----------|-----------|
 | 🛡️ | **Penyimpanan lokal** | Argon2id + AES-256 | Informasi dienkripsi saat disimpan di perangkat |
 | 📦 | **File Backup** | Argon2id + AES-256-GCM | Export file `.marix` yang dienkripsi dengan authenticated encryption |
-| 🔄 | **Cloud Sync** | Argon2id + AES-256-GCM | Enkripsi sisi klien—penyedia cloud hanya menyimpan blob terenkripsi |
+| 🔄 | **GitHub Sync** | Argon2id + AES-256-GCM | Backup cloud zero-knowledge—GitHub hanya menyimpan blob terenkripsi |
 
 ---
 
@@ -120,29 +90,15 @@ Marix dirancang untuk asumsi keamanan berikut:
 
 Marix dioptimalkan untuk berjalan lancar pada mesin dengan spesifikasi rendah:
 
-### KDF Auto-Tuned (Praktik Terbaik)
+### Manajemen memori adaptif
 
-Marix menggunakan **auto-calibration** untuk parameter Argon2id—praktik terbaik yang diadopsi secara luas dalam kriptografi terapan:
+| RAM sistem | Memori Argon2id | Level keamanan |
+|------------|-----------------|----------------|
+| ≥ 8 GB | 64 MB | Tinggi |
+| ≥ 4 GB | 32 MB | Sedang |
+| < 4 GB | 16 MB | Dioptimalkan untuk RAM rendah |
 
-| Fitur | Deskripsi |
-|-------|-----------|
-| **Waktu Target** | ~1 detik (800-1200ms) di mesin pengguna |
-| **Auto-Calibration** | Memori dan iterasi diatur otomatis saat pertama kali dijalankan |
-| **Adaptif** | Bekerja optimal di mesin lemah maupun kuat |
-| **Calibration Latar Belakang** | Berjalan saat startup app untuk UX yang mulus |
-| **Parameter Tersimpan** | Parameter KDF disimpan bersama data terenkripsi untuk dekripsi lintas mesin |
-| **Batas Keamanan** | Minimum 64MB memori, 2 iterasi (melebihi OWASP 47MB) |
-
-> **Mengapa ~1 detik?** Ini adalah rekomendasi standar dalam kriptografi praktis. Memberikan ketahanan brute-force yang kuat sambil tetap dapat diterima untuk pengalaman pengguna. Parameter beradaptasi secara otomatis ke setiap mesin—tidak perlu menebak pengaturan "standar".
-
-### Memori Dasar (Titik Awal untuk Auto-Tune)
-
-| RAM Sistem | Memori Dasar | Kemudian Auto-Tuned |
-|------------|--------------|---------------------|
-| ≥ 16 GB | 512 MB | → Dikalibrasi ke ~1s |
-| ≥ 8 GB | 256 MB | → Dikalibrasi ke ~1s |
-| ≥ 4 GB | 128 MB | → Dikalibrasi ke ~1s |
-| < 4 GB | 64 MB | → Dikalibrasi ke ~1s |
+Aplikasi secara otomatis mendeteksi RAM sistem dan menyesuaikan parameter enkripsi untuk mencapai kinerja optimal sambil mempertahankan keamanan.
 
 ### Optimasi runtime
 
@@ -266,7 +222,7 @@ Marix menggunakan **auto-calibration** untuk parameter Argon2id—praktik terbai
 Semua backup menggunakan **Argon2id** (pemenang Password Hashing Competition) dan **AES-256-GCM** (authenticated encryption):
 
 ```
-Password → Argon2id(64-512MB memory) → 256-bit key → AES-256-GCM → Backup terenkripsi
+Password → Argon2id(16-64MB memory) → 256-bit key → AES-256-GCM → Backup terenkripsi
 ```
 
 ### Data apa yang di-backup
@@ -283,7 +239,7 @@ Password → Argon2id(64-512MB memory) → 256-bit key → AES-256-GCM → Backu
 
 🔐 **Password tidak pernah disimpan** — Tidak di file, tidak di GitHub, tidak di mana pun  
 🔒 **Zero-knowledge** — Bahkan pengembang Marix tidak dapat mendekripsi backup Anda  
-🛡️ **Tahan brute-force** — Argon2id membutuhkan 64-512MB RAM per percobaan (auto-adjust)  
+🛡️ **Tahan brute-force** — Argon2id membutuhkan 16-64MB RAM per percobaan  
 ✅ **Anti-tamper** — AES-GCM mendeteksi setiap modifikasi pada data terenkripsi  
 🔄 **Kompatibel multi-mesin** — Backup menyimpan memory cost untuk portabilitas
 
@@ -374,7 +330,7 @@ Sinkronkan backup terenkripsi Anda dengan aman ke repository GitHub private:
 | Lapisan | Proteksi |
 |---------|----------|
 | **Enkripsi client-side** | Data dienkripsi sebelum meninggalkan perangkat |
-| **Argon2id KDF** | 64-512MB memory (auto), 4 iterations, 1-4 parallel lanes |
+| **Argon2id KDF** | 16-64MB memory, 3 iterations, 4 parallel lanes |
 | **AES-256-GCM** | Authenticated encryption dengan IV acak |
 | **GitHub storage** | Hanya ciphertext terenkripsi yang disimpan |
 | **Tanpa Marix server** | Komunikasi langsung client ↔ GitHub |
@@ -389,7 +345,7 @@ Sinkronkan backup terenkripsi Anda dengan aman ke repository GitHub private:
 
 | Algoritma | Parameter |
 |-----------|-----------|
-| **Key Derivation** | Argon2id (memory: 64-512MB auto, iterations: 4, parallelism: 1-4) |
+| **Key Derivation** | Argon2id (memory: 16-64MB, iterations: 3, parallelism: 4) |
 | **Symmetric Encryption** | AES-256-GCM |
 | **Salt** | 32 bytes (cryptographically random) |
 | **IV/Nonce** | 16 bytes (unique per encryption) |

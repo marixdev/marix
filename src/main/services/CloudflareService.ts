@@ -1,6 +1,5 @@
 import Cloudflare from 'cloudflare';
 import Store from 'electron-store';
-import { SecureStorage } from './SecureStorage';
 
 const store = new Store() as any;
 
@@ -43,21 +42,18 @@ export class CloudflareService {
   private client: Cloudflare | null = null;
 
   /**
-   * Get stored API token (decrypted)
+   * Get stored API token (encrypted)
    */
   getToken(): string | null {
-    const encrypted = store.get('cloudflare.token', null) as string | null;
-    if (!encrypted) return null;
-    return SecureStorage.decrypt(encrypted);
+    return store.get('cloudflare.token', null) as string | null;
   }
 
   /**
-   * Save API token (encrypted with OS keychain)
+   * Save API token (will be encrypted in backup)
    */
   setToken(token: string): void {
-    console.log('[CloudflareService] Setting new token (encrypted)');
-    const encrypted = SecureStorage.encrypt(token);
-    store.set('cloudflare.token', encrypted);
+    console.log('[CloudflareService] Setting new token');
+    store.set('cloudflare.token', token);
     this.client = null; // Reset client to use new token
   }
 

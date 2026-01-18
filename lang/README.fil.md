@@ -15,8 +15,8 @@
 <p align="center">
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue" alt="Platform">
   <img src="https://img.shields.io/badge/license-GPL--3.0-blue" alt="License">
-  <img src="https://img.shields.io/badge/client--side%20encryption-🔒-critical" alt="Client-Side Encryption">
-  <img src="https://img.shields.io/badge/version-1.0.7-orange" alt="Version">
+  <img src="https://img.shields.io/badge/zero--knowledge-🔒-critical" alt="Zero Knowledge">
+  <img src="https://img.shields.io/badge/version-1.0.4-orange" alt="Version">
 </p>
 
 <p align="center">
@@ -63,44 +63,14 @@
 
 ---
 
-## 🔒 Client-Side Encryption Architecture
+## 🔒 Zero-Knowledge Architecture
 
 > **"Ang iyong mga susi. Ang iyong mga server. Ang iyong privacy."**
-
-### Modelo ng Banta
-
-Ang Marix ay idinisenyo para sa mga sumusunod na security assumption:
-
-> ⚠️ **Inaasahan ng Marix ang isang lokal, hindi nakompromisong host environment.**  
-> Hindi ito sumusubok na magdepensa laban sa mga malisyosong OS-level na kalaban o nakompromisong runtime.
-
-**Sakop (protektado laban sa):**
-- Pagnanakaw ng backup files nang walang password
-- Brute-force password attack sa encrypted backups
-- Data tampering sa transit o storage (nadetekta via AEAD)
-- Cloud provider access sa iyong data (client-side encryption)
-
-**Hindi sakop (hindi protektado laban sa):**
-- Malware na may root/admin access sa iyong device
-- Physical access sa unlocked device habang tumatakbo ang app
-- Keylogger o screen capture malware
-- Nakompromisong operating system o Electron runtime
-
-### Ano ang HINDI Ginagawa ng Marix
-
-| ❌ | Paglalarawan |
-|----|---------------|
-| **Walang remote key storage** | Ang private keys ay hindi kailanman umaalis sa iyong device |
-| **Walang key escrow** | Hindi namin kayang i-recover ang iyong keys sa anumang pagkakataon |
-| **Walang recovery nang walang password** | Nawalang password = nawalang backup (ayon sa disenyo) |
-| **Walang network calls habang nag-e-encrypt** | Ang crypto operations ay 100% offline |
-| **Walang cloud servers** | Wala kaming pinapatakbong infrastructure |
-| **Walang telemetry** | Zero analytics, zero tracking, zero data collection |
 
 ### Mga Pangunahing Prinsipyo
 
 | | Prinsipyo | Paglalarawan |
-|---|-----------|---------------|
+|---|-----------|--------------|
 | 🔐 | **100% Offline** | Lahat ng credentials ay lokal na naka-imbak sa iyong device—hindi kailanman ini-upload |
 | ☁️ | **Walang Cloud** | Walang mga server. Ang iyong data ay hindi kailanman humahawak sa Internet |
 | 📊 | **Walang Telemetry** | Walang tracking, walang analytics, walang data collection |
@@ -109,10 +79,10 @@ Ang Marix ay idinisenyo para sa mga sumusunod na security assumption:
 ### Mga Teknolohiya ng Encryption
 
 | | Feature | Teknolohiya | Paglalarawan |
-|---|---------|-------------|---------------|
+|---|---------|-------------|--------------|
 | 🛡️ | **Lokal na Storage** | Argon2id + AES-256 | Ini-encrypt ang credentials sa device |
 | 📦 | **File Backup** | Argon2id + AES-256-GCM | Nag-e-export ng `.marix` files na may authenticated encryption |
-| 🔄 | **Cloud Sync** | Argon2id + AES-256-GCM | Client-side encryption—ang cloud provider ay nag-iimbak lang ng encrypted blobs |
+| 🔄 | **GitHub Sync** | Argon2id + AES-256-GCM | Zero-knowledge cloud backup—ang GitHub ay nag-iimbak lang ng encrypted blobs |
 
 ---
 
@@ -120,29 +90,15 @@ Ang Marix ay idinisenyo para sa mga sumusunod na security assumption:
 
 Ang Marix ay optimized para tumakbo nang maayos kahit sa mga low-end na makina:
 
-### Auto-Tuned KDF (Pinakamahusay na Praktis)
+### Adaptive Memory Management
 
-Gumagamit ang Marix ng **auto-calibration** para sa mga Argon2id parameter—isang malawakang tinatanggap na pinakamahusay na praktis sa applied cryptography:
+| System RAM | Argon2id Memory | Security Level |
+|------------|-----------------|----------------|
+| ≥ 8 GB | 64 MB | Mataas |
+| ≥ 4 GB | 32 MB | Katamtaman |
+| < 4 GB | 16 MB | Low-memory optimized |
 
-| Feature | Paglalarawan |
-|---------|--------------|
-| **Target Time** | ~1 segundo (800-1200ms) sa makina ng user |
-| **Auto-Calibration** | Memory at iterations ay awtomatikong ina-adjust sa unang run |
-| **Adaptive** | Gumagana nang optimal sa parehong mahina at makapangyarihang mga makina |
-| **Background Calibration** | Tumatakbo sa app startup para sa seamless UX |
-| **Stored Parameters** | Ang KDF params ay naka-save kasama ng encrypted data para sa cross-machine decryption |
-| **Security Floor** | Minimum 64MB memory, 2 iterations (lumampas sa OWASP 47MB) |
-
-> **Bakit ~1 segundo?** Ito ang standard na rekomendasyon sa practical cryptography. Nagbibigay ito ng matibay na brute-force resistance habang nananatiling katanggap-tanggap para sa user experience. Ang mga parameter ay awtomatikong umaangkop sa bawat makina—hindi kailangan hulaan ang "standard" na settings.
-
-### Memory Baseline (Panimulang Punto para sa Auto-Tune)
-
-| System RAM | Baseline Memory | Pagkatapos Auto-Tuned |
-|------------|-----------------|----------------------|
-| ≥ 16 GB | 512 MB | → Calibrated sa ~1s |
-| ≥ 8 GB | 256 MB | → Calibrated sa ~1s |
-| ≥ 4 GB | 128 MB | → Calibrated sa ~1s |
-| < 4 GB | 64 MB | → Calibrated sa ~1s |
+Ang app ay awtomatikong nakaka-detect ng system RAM at nag-aadjust ng mga encryption parameter para sa optimal na performance habang pinapanatili ang seguridad.
 
 ### Runtime Optimizations
 
@@ -266,7 +222,7 @@ Gumagamit ang Marix ng **auto-calibration** para sa mga Argon2id parameter—isa
 Lahat ng backups ay gumagamit ng **Argon2id** (nanalo sa Password Hashing Competition) at **AES-256-GCM** (authenticated encryption):
 
 ```
-Password → Argon2id(64-512MB memory) → 256-bit key → AES-256-GCM → Encrypted Backup
+Password → Argon2id(16-64MB memory) → 256-bit key → AES-256-GCM → Encrypted Backup
 ```
 
 ### Data na Naba-backup
@@ -283,7 +239,7 @@ Password → Argon2id(64-512MB memory) → 256-bit key → AES-256-GCM → Encry
 
 🔐 **Hindi kailanman nai-store ang password** — hindi sa file, hindi sa GitHub, kahit saan  
 🔒 **Zero-Knowledge** — kahit ang mga developer ng Marix ay hindi makakapag-decrypt ng iyong backups  
-🛡️ **Bruteforce-resistant** — ang Argon2id ay nangangailangan ng 64-512MB RAM bawat attempt (auto-adjust)  
+🛡️ **Bruteforce-resistant** — ang Argon2id ay nangangailangan ng 16-64MB RAM bawat attempt  
 ✅ **Tamper-proof** — ang AES-GCM ay nakaka-detect ng anumang pagbabago sa encrypted data  
 🔄 **Cross-machine compatible** — ang mga backup ay nag-iimbak ng memory cost para sa portability
 
@@ -374,7 +330,7 @@ Ligtas na i-sync ang mga encrypted backup sa private GitHub repo:
 | Layer | Proteksyon |
 |-------|------------|
 | **Client-side encryption** | Ang data ay ini-encrypt bago umalis sa device |
-| **Argon2id KDF** | 64-512MB memory (auto), 4 iterations, 1-4 parallel lanes |
+| **Argon2id KDF** | 16-64MB memory, 3 iterations, 4 parallel lanes |
 | **AES-256-GCM** | Authenticated encryption na may random IV |
 | **GitHub storage** | Nag-iimbak lang ng encrypted ciphertext |
 | **Walang Marix server** | Client ↔ GitHub direkta |
@@ -389,7 +345,7 @@ Ligtas na i-sync ang mga encrypted backup sa private GitHub repo:
 
 | Algorithm | Parameters |
 |-----------|------------|
-| **Key derivation** | Argon2id (Memory: 64-512MB auto, Iterations: 4, Parallelism: 1-4) |
+| **Key derivation** | Argon2id (Memory: 16-64MB, Iterations: 3, Parallelism: 4) |
 | **Symmetric encryption** | AES-256-GCM |
 | **Salt** | 32 bytes (cryptographically random) |
 | **IV/Nonce** | 16 bytes (unique per encryption) |
