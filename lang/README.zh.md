@@ -15,8 +15,8 @@
 <p align="center">
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue" alt="Platform">
   <img src="https://img.shields.io/badge/license-GPL--3.0-blue" alt="License">
-  <img src="https://img.shields.io/badge/zero--knowledge-🔒-critical" alt="Zero Knowledge">
-  <img src="https://img.shields.io/badge/version-1.0.4-orange" alt="Version">
+  <img src="https://img.shields.io/badge/client--side%20encryption-🔒-critical" alt="Client-Side Encryption">
+  <img src="https://img.shields.io/badge/version-1.0.7-orange" alt="Version">
 </p>
 
 <p align="center">
@@ -63,14 +63,44 @@
 
 ---
 
-## 🔒 零知识架构
+## 🔒 客户端加密架构
 
 > **"您的密钥。您的服务器。您的隐私。"**
 
+### 威胁模型
+
+Marix 基于以下安全假设设计：
+
+> ⚠️ **Marix 假设本地主机环境未被入侵。**  
+> 它不会尝试防御恶意的操作系统级攻击者或被入侵的运行时环境。
+
+**保护范围内：**
+- 无密码情况下备份文件被盗
+- 对加密备份的暴力密码攻击
+- 传输或存储中的数据篡改（通过 AEAD 检测）
+- 云服务商访问您的数据（客户端加密）
+
+**保护范围外：**
+- 在您设备上具有 root/admin 权限的恶意软件
+- 对运行应用的解锁设备的物理访问
+- 键盘记录器或屏幕截图恶意软件
+- 被入侵的操作系统或 Electron 运行时
+
+### Marix 不做什么
+
+| ❌ | 描述 |
+|----|------|
+| **无远程密钥存储** | 私钥永远不会离开您的设备 |
+| **无密钥托管** | 我们在任何情况下都无法恢复您的密钥 |
+| **无密码无法恢复** | 丢失密码 = 丢失备份（设计如此） |
+| **加密时无网络调用** | 加密操作 100% 离线 |
+| **无云服务器** | 我们不运营任何基础设施 |
+| **无遥测** | 零分析、零跟踪、零数据收集 |
+
 ### 核心原则
 
-| | Nguyên tắc | 描述 |
-|---|-----------|-------|
+| | 原则 | 描述 |
+|---|------|------|
 | 🔐 | **100% 离线** | 所有信息本地存储在设备上—永不上传 |
 | ☁️ | **无云服务** | 我们没有服务器。数据永不触网 |
 | 📊 | **无遥测** | 无跟踪、无分析、无数据收集 |
@@ -79,10 +109,10 @@
 ### 加密技术
 
 | | 组件 | 技术 | 描述 |
-|---|-----------|-----------|-------|
+|---|------|------|------|
 | 🛡️ | **本地存储** | Argon2id + AES-256 | 存储在设备上时加密 |
 | 📦 | **文件备份** | Argon2id + AES-256-GCM | 导出加密的 `.marix` 文件，带认证加密 |
-| 🔄 | **GitHub 同步** | Argon2id + AES-256-GCM | 零知识云备份—GitHub 仅存储加密数据块 |
+| 🔄 | **云同步** | Argon2id + AES-256-GCM | 客户端加密—云服务商仅存储加密数据块 |
 
 ---
 
@@ -90,15 +120,29 @@
 
 Marix 经过优化，可在低规格机器上流畅运行：
 
-### 自适应内存管理
+### 自动调优 KDF（最佳实践）
 
-| 系统内存 | Argon2id 内存 | 安全级别 |
-|--------------|-----------------|-------------|
-| ≥ 8 GB | 64 MB | 高 |
-| ≥ 4 GB | 32 MB | 中 |
-| < 4 GB | 16 MB | 低内存优化 |
+Marix 对 Argon2id 参数使用**自动校准**——这是应用密码学中广泛采用的最佳实践：
 
-Ứng dụng tự động phát hiện 系统内存 và điều chỉnh tham số mã hóa để đạt hiệu suất tối ưu trong khi vẫn duy trì bảo mật.
+| 特性 | 描述 |
+|------|------|
+| **目标时间** | 在用户机器上约 1 秒（800-1200ms） |
+| **自动校准** | 内存和迭代次数在首次运行时自动调优 |
+| **自适应** | 在弱机器和强机器上都能最优运行 |
+| **后台校准** | 应用启动时运行，确保无缝用户体验 |
+| **存储参数** | KDF 参数与加密数据一起保存，支持跨机器解密 |
+| **安全底线** | 最低 64MB 内存，2 次迭代（超过 OWASP 47MB） |
+
+> **为什么约 1 秒？** 这是实用密码学的标准建议。它提供强大的暴力破解抵抗力，同时对用户体验仍可接受。参数自动适应每台机器——无需猜测"标准"设置。
+
+### 内存基准（自动调优起点）
+
+| 系统内存 | 基准内存 | 然后自动调优 |
+|----------|----------|--------------|
+| ≥ 16 GB | 512 MB | → 校准至约 1s |
+| ≥ 8 GB | 256 MB | → 校准至约 1s |
+| ≥ 4 GB | 128 MB | → 校准至约 1s |
+| < 4 GB | 64 MB | → 校准至约 1s |
 
 ### 运行时优化
 
@@ -222,7 +266,7 @@ Marix 经过优化，可在低规格机器上流畅运行：
 所有备份使用 **Argon2id**（密码哈希竞赛冠军）和 **AES-256-GCM**（认证加密）：
 
 ```
-Password → Argon2id(16-64MB memory) → 256 位 key → AES-256-GCM → Encrypted backup
+Password → Argon2id(64-512MB memory) → 256 位 key → AES-256-GCM → Encrypted backup
 ```
 
 ### 备份哪些数据
@@ -239,7 +283,7 @@ Password → Argon2id(16-64MB memory) → 256 位 key → AES-256-GCM → Encryp
 
 🔐 **密码永不存储** — 不在文件中，不在 GitHub 上，不在任何地方  
 🔒 **零知识** — 即使 Marix 开发者也无法解密您的备份  
-🛡️ **抗暴力破解** — Argon2id 每次尝试需要 16-64MB RAM  
+🛡️ **抗暴力破解** — Argon2id 每次尝试需要 64-512MB RAM（自动调整）  
 ✅ **防篡改** — AES-GCM 检测对加密数据的任何修改  
 🔄 **多机兼容** — 备份存储内存成本以实现可移植性
 
@@ -330,7 +374,7 @@ Password → Argon2id(16-64MB memory) → 256 位 key → AES-256-GCM → Encryp
 | 层 | 保护 |
 |-----|--------|
 | **加密 client-side** | 数据 mã hóa trước khi rời thiết bị |
-| **Argon2id KDF** | 16-64MB 内存，3 次迭代，4 个并行通道 |
+| **Argon2id KDF** | 64-512MB 内存（自动），4 次迭代，1-4 个并行通道 |
 | **AES-256-GCM** | 带随机 IV 的认证加密 |
 | **GitHub 存储** | 仅存储加密密文 |
 | **无 Marix 服务器** | 客户端 ↔ GitHub 直接通信 |
@@ -345,7 +389,7 @@ Password → Argon2id(16-64MB memory) → 256 位 key → AES-256-GCM → Encryp
 
 | 算法 | 参数 |
 |------------|----------|
-| **密钥派生** | Argon2id (memory: 16-64MB, iterations: 3, parallelism: 4) |
+| **密钥派生** | Argon2id (memory: 64-512MB 自动, iterations: 4, parallelism: 1-4) |
 | **对称加密** | AES-256-GCM |
 | **盐值** | 32 字节（密码学随机） |
 | **IV/Nonce** | 16 字节（每次加密唯一） |

@@ -15,8 +15,8 @@
 <p align="center">
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue" alt="Platform">
   <img src="https://img.shields.io/badge/license-GPL--3.0-blue" alt="License">
-  <img src="https://img.shields.io/badge/zero--knowledge-🔒-critical" alt="Zero Knowledge">
-  <img src="https://img.shields.io/badge/version-1.0.4-orange" alt="Version">
+  <img src="https://img.shields.io/badge/client--side%20encryption-🔒-critical" alt="Client-Side Encryption">
+  <img src="https://img.shields.io/badge/version-1.0.7-orange" alt="Version">
 </p>
 
 <p align="center">
@@ -63,9 +63,39 @@
 
 ---
 
-## 🔒 Arquitectura Zero-Knowledge
+## 🔒 Arquitectura de Cifrado del Lado del Cliente
 
 > **"Tus llaves. Tus servidores. Tu privacidad."**
+
+### Modelo de Amenazas
+
+Marix está diseñado para las siguientes suposiciones de seguridad:
+
+> ⚠️ **Marix asume un entorno de host local no comprometido.**  
+> No intenta defenderse contra adversarios maliciosos a nivel de SO o entornos de ejecución comprometidos.
+
+**Dentro del alcance (protegido contra):**
+- Robo de archivos de respaldo sin contraseña
+- Ataques de fuerza bruta en respaldos cifrados
+- Manipulación de datos en tránsito o almacenamiento (detectado via AEAD)
+- Acceso del proveedor cloud a tus datos (cifrado del lado del cliente)
+
+**Fuera del alcance (no protegido contra):**
+- Malware con acceso root/admin en tu dispositivo
+- Acceso físico a dispositivo desbloqueado con la app ejecutándose
+- Keyloggers o malware de captura de pantalla
+- Sistema operativo o runtime de Electron comprometido
+
+### Lo que Marix NO Hace
+
+| ❌ | Descripción |
+|----|-------------|
+| **Sin almacenamiento remoto de claves** | Las claves privadas nunca salen de tu dispositivo |
+| **Sin custodia de claves** | No podemos recuperar tus claves bajo ninguna circunstancia |
+| **Sin recuperación sin contraseña** | Contraseña perdida = respaldo perdido (por diseño) |
+| **Sin llamadas de red durante el cifrado** | Las operaciones criptográficas son 100% offline |
+| **Sin servidores cloud** | No operamos ninguna infraestructura |
+| **Sin telemetría** | Cero analíticas, cero rastreo, cero recolección de datos |
 
 ### Principios Fundamentales
 
@@ -82,7 +112,7 @@
 |---|----------------|------------|-------------|
 | 🛡️ | **Almacenamiento Local** | Argon2id + AES-256 | Cifra credenciales en el dispositivo |
 | 📦 | **Respaldo de Archivos** | Argon2id + AES-256-GCM | Exporta archivos `.marix` con cifrado autenticado |
-| 🔄 | **Sincronización GitHub** | Argon2id + AES-256-GCM | Respaldo cloud zero-knowledge—GitHub solo almacena blobs cifrados |
+| 🔄 | **Sincronización Cloud** | Argon2id + AES-256-GCM | Cifrado del lado del cliente—el proveedor cloud solo almacena blobs cifrados |
 
 ---
 
@@ -90,15 +120,29 @@
 
 Marix está optimizado para funcionar suavemente incluso en máquinas de gama baja:
 
-### Gestión Adaptativa de Memoria
+### KDF Auto-Ajustado (Mejor Práctica)
 
-| RAM del Sistema | Memoria Argon2id | Nivel de Seguridad |
-|-----------------|------------------|-------------------|
-| ≥ 8 GB | 64 MB | Alto |
-| ≥ 4 GB | 32 MB | Medio |
-| < 4 GB | 16 MB | Optimizado para baja memoria |
+Marix utiliza **auto-calibración** para los parámetros de Argon2id—una práctica ampliamente adoptada en criptografía aplicada:
 
-La app detecta automáticamente la RAM del sistema y ajusta los parámetros de cifrado para un rendimiento óptimo mientras mantiene la seguridad.
+| Característica | Descripción |
+|----------------|-------------|
+| **Tiempo Objetivo** | ~1 segundo (800-1200ms) en la máquina del usuario |
+| **Auto-Calibración** | Memoria e iteraciones auto-ajustadas en la primera ejecución |
+| **Adaptativo** | Funciona óptimamente tanto en máquinas débiles como potentes |
+| **Calibración en Segundo Plano** | Se ejecuta al iniciar la app para una UX fluida |
+| **Parámetros Almacenados** | Los parámetros KDF se guardan con los datos cifrados para descifrado entre máquinas |
+| **Piso de Seguridad** | Mínimo 64MB de memoria, 2 iteraciones (supera OWASP 47MB) |
+
+> **¿Por qué ~1 segundo?** Esta es la recomendación estándar en criptografía práctica. Proporciona fuerte resistencia a fuerza bruta mientras permanece aceptable para la experiencia del usuario. Los parámetros se adaptan automáticamente a cada máquina—no hay necesidad de adivinar configuraciones "estándar".
+
+### Memoria Base (Punto de Partida para Auto-Ajuste)
+
+| RAM del Sistema | Memoria Base | Luego Auto-Ajustado |
+|-----------------|--------------|---------------------|
+| ≥ 16 GB | 512 MB | → Calibrado a ~1s |
+| ≥ 8 GB | 256 MB | → Calibrado a ~1s |
+| ≥ 4 GB | 128 MB | → Calibrado a ~1s |
+| < 4 GB | 64 MB | → Calibrado a ~1s |
 
 ### Optimizaciones en Tiempo de Ejecución
 
@@ -222,7 +266,7 @@ La app detecta automáticamente la RAM del sistema y ajusta los parámetros de c
 Todos los respaldos usan **Argon2id** (ganador del Password Hashing Competition) y **AES-256-GCM** (cifrado autenticado):
 
 ```
-Contraseña → Argon2id(16-64MB memoria) → Clave 256-bit → AES-256-GCM → Respaldo Cifrado
+Contraseña → Argon2id(64-512MB memoria) → Clave 256-bit → AES-256-GCM → Respaldo Cifrado
 ```
 
 ### Datos Respaldados
@@ -239,7 +283,7 @@ Contraseña → Argon2id(16-64MB memoria) → Clave 256-bit → AES-256-GCM → 
 
 🔐 **Contraseña nunca almacenada** — ni en el archivo, ni en GitHub, en ningún lugar  
 🔒 **Zero-Knowledge** — ni siquiera los desarrolladores de Marix pueden descifrar tus respaldos  
-🛡️ **Resistente a fuerza bruta** — Argon2id requiere 16-64MB de RAM por intento  
+🛡️ **Resistente a fuerza bruta** — Argon2id requiere 64-512MB de RAM por intento (auto-ajustado)  
 ✅ **A prueba de manipulaciones** — AES-GCM detecta cualquier cambio en los datos cifrados  
 🔄 **Compatible entre máquinas** — los respaldos almacenan el costo de memoria para portabilidad
 
@@ -330,7 +374,7 @@ Sincronizar respaldos cifrados de forma segura con un repositorio privado de Git
 | Capa | Protección |
 |------|------------|
 | **Cifrado del lado del cliente** | Los datos se cifran antes de salir del dispositivo |
-| **Argon2id KDF** | 16-64MB memoria, 3 iteraciones, 4 carriles paralelos |
+| **Argon2id KDF** | 64-512MB memoria (auto), 4 iteraciones, 1-4 carriles paralelos |
 | **AES-256-GCM** | Cifrado autenticado con IV aleatorio |
 | **Almacenamiento GitHub** | Solo almacena texto cifrado |
 | **Sin servidor Marix** | Cliente ↔ GitHub directamente |
@@ -345,7 +389,7 @@ Sincronizar respaldos cifrados de forma segura con un repositorio privado de Git
 
 | Algoritmo | Parámetros |
 |-----------|------------|
-| **Derivación de clave** | Argon2id (Memoria: 16-64MB, Iteraciones: 3, Paralelismo: 4) |
+| **Derivación de clave** | Argon2id (Memoria: 64-512MB auto, Iteraciones: 4, Paralelismo: 1-4) |
 | **Cifrado simétrico** | AES-256-GCM |
 | **Sal** | 32 bytes (aleatorio criptográfico) |
 | **IV/Nonce** | 16 bytes (único por cifrado) |

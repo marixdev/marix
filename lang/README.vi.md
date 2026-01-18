@@ -15,8 +15,8 @@
 <p align="center">
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue" alt="Platform">
   <img src="https://img.shields.io/badge/license-GPL--3.0-blue" alt="License">
-  <img src="https://img.shields.io/badge/zero--knowledge-🔒-critical" alt="Zero Knowledge">
-  <img src="https://img.shields.io/badge/version-1.0.4-orange" alt="Version">
+  <img src="https://img.shields.io/badge/client--side%20encryption-🔒-critical" alt="Client-Side Encryption">
+  <img src="https://img.shields.io/badge/version-1.0.7-orange" alt="Version">
 </p>
 
 <p align="center">
@@ -63,9 +63,39 @@
 
 ---
 
-## 🔒 Kiến trúc Zero-Knowledge
+## 🔒 Kiến trúc mã hóa Client-Side
 
 > **"Khóa của bạn. Server của bạn. Quyền riêng tư của bạn."**
+
+### Mô hình mối đe dọa (Threat Model)
+
+Marix được thiết kế với các giả định bảo mật sau:
+
+> ⚠️ **Marix giả định môi trường host local, không bị xâm phạm.**  
+> Không cố gắng bảo vệ chống lại kẻ tấn công cấp OS hoặc runtime bị xâm phạm.
+
+**Trong phạm vi bảo vệ:**
+- Đánh cắp file backup không có password
+- Tấn công brute-force password trên backup mã hóa
+- Giả mạo dữ liệu trong quá trình truyền hoặc lưu trữ (phát hiện qua AEAD)
+- Cloud provider truy cập dữ liệu của bạn (mã hóa client-side)
+
+**Ngoài phạm vi bảo vệ:**
+- Malware có quyền root/admin trên thiết bị
+- Truy cập vật lý vào thiết bị đang mở khóa với app đang chạy
+- Keylogger hoặc malware chụp màn hình
+- Hệ điều hành hoặc Electron runtime bị xâm phạm
+
+### Marix KHÔNG làm gì
+
+| ❌ | Mô tả |
+|----|-------|
+| **Không lưu trữ key từ xa** | Private keys không bao giờ rời thiết bị |
+| **Không key escrow** | Chúng tôi không thể khôi phục keys dưới bất kỳ hoàn cảnh nào |
+| **Không khôi phục không có password** | Mất password = mất backup (theo thiết kế) |
+| **Không gọi mạng khi mã hóa** | Thao tác crypto 100% offline |
+| **Không có cloud servers** | Chúng tôi không vận hành bất kỳ hạ tầng nào |
+| **Không telemetry** | Không analytics, không tracking, không thu thập dữ liệu |
 
 ### Nguyên tắc cốt lõi
 
@@ -82,7 +112,7 @@
 |---|-----------|-----------|-------|
 | 🛡️ | **Lưu trữ cục bộ** | Argon2id + AES-256 | Thông tin mã hóa khi lưu trên thiết bị |
 | 📦 | **File Backup** | Argon2id + AES-256-GCM | Export file `.marix` được mã hóa với authenticated encryption |
-| 🔄 | **GitHub Sync** | Argon2id + AES-256-GCM | Sao lưu cloud zero-knowledge—GitHub chỉ lưu blob mã hóa |
+| 🔄 | **Cloud Sync** | Argon2id + AES-256-GCM | Mã hóa client-side—cloud providers chỉ lưu blob mã hóa |
 
 ---
 
@@ -90,15 +120,29 @@
 
 Marix được tối ưu để chạy mượt mà trên máy cấu hình thấp:
 
-### Quản lý bộ nhớ thích ứng
+### KDF Tự động điều chỉnh (Best Practice)
 
-| RAM hệ thống | Bộ nhớ Argon2id | Mức bảo mật |
-|--------------|-----------------|-------------|
-| ≥ 8 GB | 64 MB | Cao |
-| ≥ 4 GB | 32 MB | Trung bình |
-| < 4 GB | 16 MB | Tối ưu cho RAM thấp |
+Marix sử dụng **auto-calibration** cho các tham số Argon2id—một best practice được áp dụng rộng rãi trong mật mã học ứng dụng:
 
-Ứng dụng tự động phát hiện RAM hệ thống và điều chỉnh tham số mã hóa để đạt hiệu suất tối ưu trong khi vẫn duy trì bảo mật.
+| Tính năng | Mô tả |
+|-----------|-------|
+| **Thời gian mục tiêu** | ~1 giây (800-1200ms) trên máy người dùng |
+| **Auto-Calibration** | Bộ nhớ và số vòng lặp được tự động điều chỉnh lần chạy đầu |
+| **Thích ứng** | Hoạt động tối ưu trên cả máy yếu và máy mạnh |
+| **Calibration nền** | Chạy khi khởi động app để UX mượt mà |
+| **Lưu tham số** | Tham số KDF được lưu cùng dữ liệu mã hóa để giải mã trên máy khác |
+| **Sàn bảo mật** | Tối thiểu 64MB bộ nhớ, 2 vòng lặp (vượt OWASP 47MB) |
+
+> **Tại sao ~1 giây?** Đây là khuyến nghị tiêu chuẩn trong mật mã học thực tiễn. Nó cung cấp khả năng chống brute-force mạnh mẽ trong khi vẫn chấp nhận được cho trải nghiệm người dùng. Tham số tự động thích ứng với từng máy—không cần đoán cài đặt "tiêu chuẩn".
+
+### Bộ nhớ cơ sở (Điểm khởi đầu cho Auto-Tune)
+
+| RAM hệ thống | Bộ nhớ cơ sở | Sau đó Auto-Tuned |
+|--------------|--------------|-------------------|
+| ≥ 16 GB | 512 MB | → Calibrated đến ~1s |
+| ≥ 8 GB | 256 MB | → Calibrated đến ~1s |
+| ≥ 4 GB | 128 MB | → Calibrated đến ~1s |
+| < 4 GB | 64 MB | → Calibrated đến ~1s |
 
 ### Tối ưu runtime
 
@@ -222,7 +266,7 @@ Marix được tối ưu để chạy mượt mà trên máy cấu hình thấp:
 Tất cả backup sử dụng **Argon2id** (người chiến thắng Password Hashing Competition) và **AES-256-GCM** (authenticated encryption):
 
 ```
-Password → Argon2id(16-64MB memory) → 256-bit key → AES-256-GCM → Encrypted backup
+Password → Argon2id(64-512MB memory) → 256-bit key → AES-256-GCM → Encrypted backup
 ```
 
 ### Dữ liệu nào được sao lưu
@@ -238,10 +282,10 @@ Password → Argon2id(16-64MB memory) → 256-bit key → AES-256-GCM → Encryp
 ### Đảm bảo bảo mật
 
 🔐 **Password không bao giờ được lưu** — Không trong file, không trên GitHub, không ở đâu cả  
-🔒 **Zero-knowledge** — Ngay cả nhà phát triển Marix cũng không thể giải mã backup của bạn  
-🛡️ **Kháng brute-force** — Argon2id yêu cầu 16-64MB RAM mỗi lần thử  
-✅ **Chống giả mạo** — AES-GCM phát hiện mọi sửa đổi đối với dữ liệu mã hóa  
-🔄 **Tương thích đa máy** — Backup lưu memory cost để có tính di động
+🔒 **Mã hóa client-side** — Tất cả mã hóa diễn ra local trước khi dữ liệu rời thiết bị  
+🛡️ **Kháng brute-force** — Argon2id yêu cầu 64-512MB RAM mỗi lần thử (tự động điều chỉnh)  
+✅ **Phát hiện giả mạo** — AES-GCM (AEAD) xác thực phát hiện mọi sửa đổi dữ liệu mã hóa  
+🔄 **Tương thích đa máy** — Backup lưu tham số KDF để có tính di động
 
 ---
 
@@ -330,8 +374,8 @@ Export tất cả dữ liệu của bạn dưới dạng file `.marix` được 
 | Lớp | Bảo vệ |
 |-----|--------|
 | **Mã hóa client-side** | Dữ liệu mã hóa trước khi rời thiết bị |
-| **Argon2id KDF** | 16-64MB memory, 3 iterations, 4 parallel lanes |
-| **AES-256-GCM** | Authenticated encryption với random IV |
+| **Argon2id KDF** | 64-512MB memory (tự động), 4 iterations, 1-4 parallel lanes |
+| **AES-256-GCM** | AEAD với random IV (phát hiện giả mạo) |
 | **GitHub storage** | Chỉ ciphertext mã hóa được lưu |
 | **Không có Marix server** | Giao tiếp trực tiếp client ↔ GitHub |
 
@@ -345,7 +389,7 @@ Export tất cả dữ liệu của bạn dưới dạng file `.marix` được 
 
 | Thuật toán | Tham số |
 |------------|----------|
-| **Key Derivation** | Argon2id (memory: 16-64MB, iterations: 3, parallelism: 4) |
+| **Key Derivation** | Argon2id (memory: 64-512MB tự động, iterations: 4, parallelism: 1-4) |
 | **Symmetric Encryption** | AES-256-GCM |
 | **Salt** | 32 bytes (cryptographically random) |
 | **IV/Nonce** | 16 bytes (unique per encryption) |

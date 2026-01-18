@@ -2,6 +2,73 @@
 
 All notable changes to Marix SSH Client will be documented in this file.
 
+## [1.0.7] - 2026-01-18
+
+### Security Improvements (Major)
+- **Auto-Tuned KDF** (Best Practice):
+  - KDF now automatically calibrates to take ~1 second on user's machine
+  - Target time: 800-1200ms (adapts to both weak and strong machines)
+  - Parameters (memory, iterations) are auto-tuned at first run and cached
+  - Calibration runs in background on app start for optimal UX
+  - Parameters stored with encrypted data (v2.2) for cross-machine decryption
+  - Eliminates need to guess "standard" parameters - each machine uses optimal settings
+  - Minimum security floor: 64MB memory, 2 iterations (above OWASP 47MB recommendation)
+  - **Backward compatible**: Legacy backups (v2.0) use fixed defaults for correct decryption
+
+- **OS-Level Credential Encryption** (safeStorage):
+  - All sensitive data (passwords, private keys, passphrases, API tokens) now encrypted using OS keychain
+  - macOS: Uses Keychain
+  - Windows: Uses DPAPI (Data Protection API)
+  - Linux: Uses libsecret (GNOME Keyring, KWallet, etc.)
+  - Credentials are tied to the device - copying `config.json` to another machine won't expose passwords
+  - Automatic migration: existing plaintext passwords are encrypted on first launch
+  - Cloudflare API tokens now encrypted using safeStorage
+
+### Fixed
+- **Backup Restore Compatibility**: Fixed potential issue where restoring legacy backups (v2.0) on different machines could fail
+  - Legacy backups now use fixed KDF defaults (64MB, 3 iterations) instead of auto-tuned values
+  - New backups (v2.2) store all KDF parameters for guaranteed cross-machine compatibility
+
+### Documentation Updates
+- **Corrected terminology** in README:
+  - "Zero-knowledge" → "Client-side encryption" (more accurate)
+  - "Tamper-proof" → "Tamper-evident" (AEAD authentication)
+- **Added Threat Model** section explaining security assumptions
+- **Added "What Marix Does NOT Do"** section for transparency:
+  - No remote key storage
+  - No key escrow
+  - No recovery without password
+  - No network calls during encryption
+
+### Added
+- **Windows Legacy Support**: Build for Windows 7, Windows 8, and Windows Server 2012
+  - Uses Electron 22.x for compatibility with older Windows versions
+  - Webpack bundling for CommonJS compatibility
+  - PostCSS preset-env for CSS compatibility with older Chromium
+  - Separate installer: `Marix-x.x.x-legacy-win.exe`
+- **GitHub Actions**: Automated build pipeline now includes Windows Legacy builds
+  - Build and Release workflow includes legacy builds
+  - Build Only workflow has new "windows-legacy" option
+- New `SecureStorage` service for centralized encryption/decryption
+- Automatic migration system for existing unencrypted credentials
+
+### Fixed
+- **macOS Title Bar**: Fixed title bar overlapping with system traffic light buttons (close, minimize, maximize)
+  - Added 70px left padding on macOS to accommodate native window controls
+  - Title bar now displays correctly without overlapping system buttons
+
+### Technical
+- New webpack config files for legacy builds:
+  - `webpack.main.legacy.js` - Main process bundling with CommonJS output
+  - `webpack.renderer.legacy.js` - Renderer with ES2017 target for Chromium 108
+  - `postcss.legacy.config.js` - CSS transpilation for older browsers
+- `electron-builder-legacy.json` - Electron Builder config for legacy Windows
+- `scripts/build-legacy-win.sh` - Build script for local legacy builds
+- `ServerStore` now encrypts `password`, `privateKey`, and `passphrase` fields
+- `CloudflareService` encrypts API tokens before storing
+- Encryption prefix `enc:` used to identify already-encrypted values
+- Migration flag prevents re-encrypting already encrypted data
+
 ## [1.0.6] - 2026-01-17
 
 ### Added

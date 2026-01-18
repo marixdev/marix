@@ -15,8 +15,8 @@
 <p align="center">
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue" alt="Platform">
   <img src="https://img.shields.io/badge/license-GPL--3.0-blue" alt="License">
-  <img src="https://img.shields.io/badge/zero--knowledge-🔒-critical" alt="Zero Knowledge">
-  <img src="https://img.shields.io/badge/version-1.0.4-orange" alt="Version">
+  <img src="https://img.shields.io/badge/client--side%20encryption-🔒-critical" alt="Client-Side Encryption">
+  <img src="https://img.shields.io/badge/version-1.0.7-orange" alt="Version">
 </p>
 
 <p align="center">
@@ -63,9 +63,39 @@
 
 ---
 
-## 🔒 Seni Bina Zero-Knowledge
+## 🔒 Seni Bina Penyulitan Sisi Klien
 
 > **"Kunci anda. Pelayan anda. Privasi anda."**
+
+### Model Ancaman
+
+Marix direka untuk andaian keselamatan berikut:
+
+> ⚠️ **Marix mengandaikan persekitaran hos tempatan yang tidak terjejas.**  
+> Ia tidak cuba mempertahankan diri daripada musuh tahap OS yang berniat jahat atau masa jalan yang terjejas.
+
+**Dalam skop (dilindungi daripada):**
+- Kecurian fail sandaran tanpa kata laluan
+- Serangan kata laluan brute-force pada sandaran yang disulitkan
+- Pengubahan data dalam transit atau storan (dikesan melalui AEAD)
+- Akses penyedia awan kepada data anda (penyulitan sisi klien)
+
+**Di luar skop (tidak dilindungi daripada):**
+- Perisian hasad dengan akses root/admin pada peranti anda
+- Akses fizikal kepada peranti yang tidak dikunci dengan aplikasi berjalan
+- Keylogger atau perisian hasad tangkapan skrin
+- Sistem pengendalian atau masa jalan Electron yang terjejas
+
+### Apa yang Marix TIDAK Lakukan
+
+| ❌ | Penerangan |
+|----|------------|
+| **Tiada storan kunci jauh** | Kunci peribadi tidak pernah meninggalkan peranti anda |
+| **Tiada eskrow kunci** | Kami tidak dapat memulihkan kunci anda dalam apa jua keadaan |
+| **Tiada pemulihan tanpa kata laluan** | Kata laluan hilang = sandaran hilang (direka sebegitu) |
+| **Tiada panggilan rangkaian semasa penyulitan** | Operasi kripto adalah 100% luar talian |
+| **Tiada pelayan awan** | Kami tidak mengendalikan sebarang infrastruktur |
+| **Tiada telemetri** | Sifar analitik, sifar penjejakan, sifar pengumpulan data |
 
 ### Prinsip Asas
 
@@ -82,7 +112,7 @@
 |---|-----|-----------|------------|
 | 🛡️ | **Storan Setempat** | Argon2id + AES-256 | Menyulitkan kelayakan pada peranti |
 | 📦 | **Sandaran Fail** | Argon2id + AES-256-GCM | Eksport fail `.marix` dengan penyulitan yang disahkan |
-| 🔄 | **Segerak GitHub** | Argon2id + AES-256-GCM | Sandaran awan zero-knowledge—GitHub hanya menyimpan blob yang disulitkan |
+| 🔄 | **Segerak Awan** | Argon2id + AES-256-GCM | Penyulitan sisi klien—penyedia awan hanya menyimpan blob yang disulitkan |
 
 ---
 
@@ -90,15 +120,29 @@
 
 Marix dioptimumkan untuk berjalan lancar walaupun pada mesin yang lemah:
 
-### Pengurusan Memori Adaptif
+### KDF Auto-Tune (Amalan Terbaik)
 
-| RAM Sistem | Memori Argon2id | Tahap Keselamatan |
-|------------|-----------------|-------------------|
-| ≥ 8 GB | 64 MB | Tinggi |
-| ≥ 4 GB | 32 MB | Sederhana |
-| < 4 GB | 16 MB | Dioptimumkan untuk memori rendah |
+Marix menggunakan **auto-calibration** untuk parameter Argon2id—amalan terbaik yang diterima pakai secara meluas dalam kriptografi gunaan:
 
-Aplikasi mengesan RAM sistem secara automatik dan menyesuaikan parameter penyulitan untuk prestasi optimum sambil mengekalkan keselamatan.
+| Ciri | Penerangan |
+|------|------------|
+| **Masa Sasaran** | ~1 saat (800-1200ms) pada mesin pengguna |
+| **Auto-Calibration** | Memori dan iterasi dilaras automatik pada pelancaran pertama |
+| **Adaptif** | Berfungsi secara optimum pada mesin lemah dan berkuasa |
+| **Calibration Latar Belakang** | Berjalan semasa permulaan app untuk UX lancar |
+| **Parameter Disimpan** | Parameter KDF disimpan dengan data disulitkan untuk penyahsulitan merentas mesin |
+| **Lantai Keselamatan** | Minimum 64MB memori, 2 iterasi (melebihi OWASP 47MB) |
+
+> **Mengapa ~1 saat?** Ini adalah cadangan standard dalam kriptografi praktikal. Ia menyediakan rintangan brute-force yang kuat sambil kekal boleh diterima untuk pengalaman pengguna. Parameter menyesuaikan diri secara automatik kepada setiap mesin—tidak perlu meneka tetapan "standard".
+
+### Memori Asas (Titik Permulaan untuk Auto-Tune)
+
+| RAM Sistem | Memori Asas | Kemudian Auto-Tuned |
+|------------|-------------|---------------------|
+| ≥ 16 GB | 512 MB | → Dikalibrasi ke ~1s |
+| ≥ 8 GB | 256 MB | → Dikalibrasi ke ~1s |
+| ≥ 4 GB | 128 MB | → Dikalibrasi ke ~1s |
+| < 4 GB | 64 MB | → Dikalibrasi ke ~1s |
 
 ### Pengoptimuman Runtime
 
@@ -222,7 +266,7 @@ Aplikasi mengesan RAM sistem secara automatik dan menyesuaikan parameter penyuli
 Semua sandaran menggunakan **Argon2id** (pemenang Password Hashing Competition) dan **AES-256-GCM** (penyulitan yang disahkan):
 
 ```
-Kata laluan → Argon2id(memori 16-64MB) → Kunci 256-bit → AES-256-GCM → Sandaran Disulitkan
+Kata laluan → Argon2id(memori 64-512MB) → Kunci 256-bit → AES-256-GCM → Sandaran Disulitkan
 ```
 
 ### Data yang Disandarkan
@@ -238,10 +282,10 @@ Kata laluan → Argon2id(memori 16-64MB) → Kunci 256-bit → AES-256-GCM → S
 ### Jaminan Keselamatan
 
 🔐 **Kata laluan tidak pernah disimpan** — tidak dalam fail, tidak di GitHub, di mana-mana sahaja  
-🔒 **Zero-Knowledge** — pembangun Marix pun tidak boleh menyahsulit sandaran anda  
-��️ **Tahan bruteforce** — Argon2id memerlukan RAM 16-64MB setiap percubaan  
-✅ **Tahan gangguan** — AES-GCM mengesan sebarang perubahan pada data yang disulitkan  
-🔄 **Serasi merentas mesin** — sandaran menyimpan kos memori untuk kemudahalihan
+🔒 **Penyulitan sisi klien** — Semua penyulitan berlaku secara lokal sebelum data meninggalkan peranti  
+🛡️ **Tahan bruteforce** — Argon2id memerlukan RAM 64-512MB setiap percubaan (auto-laras)  
+✅ **Pengesanan gangguan** — AES-GCM (AEAD) mengesan sebarang perubahan pada data yang disulitkan  
+🔄 **Serasi merentas mesin** — sandaran menyimpan parameter KDF untuk kemudahalihan
 
 ---
 
@@ -330,7 +374,7 @@ Segerakkan sandaran yang disulitkan ke repo GitHub peribadi dengan selamat:
 | Lapisan | Perlindungan |
 |---------|-------------|
 | **Penyulitan sisi klien** | Data disulitkan sebelum meninggalkan peranti |
-| **Argon2id KDF** | Memori 16-64MB, 3 lelaran, 4 lorong selari |
+| **Argon2id KDF** | Memori 64-512MB (auto), 4 lelaran, 1-4 lorong selari |
 | **AES-256-GCM** | Penyulitan yang disahkan dengan IV rawak |
 | **Storan GitHub** | Hanya menyimpan teks sifer yang disulitkan |
 | **Tiada pelayan Marix** | Klien ↔ GitHub secara langsung |
@@ -345,7 +389,7 @@ Segerakkan sandaran yang disulitkan ke repo GitHub peribadi dengan selamat:
 
 | Algoritma | Parameter |
 |-----------|-----------|
-| **Terbitan kunci** | Argon2id (Memori: 16-64MB, Lelaran: 3, Keselarian: 4) |
+| **Terbitan kunci** | Argon2id (Memori: 64-512MB auto, Lelaran: 4, Keselarian: 1-4) |
 | **Penyulitan simetri** | AES-256-GCM |
 | **Garam** | 32 bait (rawak kriptografi) |
 | **IV/Nonce** | 16 bait (unik setiap penyulitan) |

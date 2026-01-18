@@ -15,8 +15,8 @@
 <p align="center">
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue" alt="Platform">
   <img src="https://img.shields.io/badge/license-GPL--3.0-blue" alt="License">
-  <img src="https://img.shields.io/badge/zero--knowledge-🔒-critical" alt="Zero Knowledge">
-  <img src="https://img.shields.io/badge/version-1.0.6-orange" alt="Version">
+  <img src="https://img.shields.io/badge/client--side%20encryption-🔒-critical" alt="Client-Side Encryption">
+  <img src="https://img.shields.io/badge/version-1.0.7-orange" alt="Version">
 </p>
 
 <p align="center">
@@ -63,9 +63,39 @@
 
 ---
 
-## 🔒 Zero-Knowledge Architecture
+## 🔒 Client-Side Encryption Architecture
 
 > **"Your keys. Your servers. Your privacy."**
+
+### Threat Model
+
+Marix is designed for the following security assumptions:
+
+> ⚠️ **Marix assumes a local, non-compromised host environment.**  
+> It does not attempt to defend against malicious OS-level adversaries or compromised runtimes.
+
+**In scope (protected against):**
+- Theft of backup files without password
+- Brute-force password attacks on encrypted backups
+- Data tampering in transit or storage (detected via AEAD)
+- Cloud provider access to your data (client-side encryption)
+
+**Out of scope (not protected against):**
+- Malware with root/admin access on your device
+- Physical access to unlocked device with app running
+- Keyloggers or screen capture malware
+- Compromised operating system or Electron runtime
+
+### What Marix Does NOT Do
+
+| ❌ | Description |
+|----|-------------|
+| **No remote key storage** | Private keys never leave your device |
+| **No key escrow** | We cannot recover your keys under any circumstance |
+| **No recovery without password** | Lost password = lost backup (by design) |
+| **No network calls during encryption** | Crypto operations are 100% offline |
+| **No cloud servers** | We don't operate any infrastructure |
+| **No telemetry** | Zero analytics, zero tracking, zero data collection |
 
 ### Core Principles
 
@@ -82,7 +112,7 @@
 |---|---------|------------|-------------|
 | 🛡️ | **Local Storage** | Argon2id + AES-256 | Credentials encrypted at rest on your device |
 | 📦 | **File Backup** | Argon2id + AES-256-GCM | Export encrypted \`.marix\` files with authenticated encryption |
-| 🔄 | **GitHub Sync** | Argon2id + AES-256-GCM | Zero-knowledge cloud backup—GitHub stores only encrypted blobs |
+| 🔄 | **Cloud Sync** | Argon2id + AES-256-GCM | Client-side encryption—cloud providers store only encrypted blobs |
 
 ---
 
@@ -90,15 +120,29 @@
 
 Marix is optimized to run smoothly on low-end machines:
 
-### Adaptive Memory Management
+### Auto-Tuned KDF (Best Practice)
 
-| System RAM | Argon2id Memory | Security Level |
-|------------|-----------------|----------------|
-| ≥ 8 GB | 64 MB | High |
-| ≥ 4 GB | 32 MB | Medium |
-| < 4 GB | 16 MB | Optimized for low-memory |
+Marix uses **auto-calibration** for Argon2id parameters—a widely-adopted best practice in applied cryptography:
 
-The app automatically detects your system RAM and adjusts encryption parameters for optimal performance while maintaining security.
+| Feature | Description |
+|---------|-------------|
+| **Target Time** | ~1 second (800-1200ms) on user's machine |
+| **Auto-Calibration** | Memory and iterations auto-tuned at first run |
+| **Adaptive** | Works optimally on both weak and powerful machines |
+| **Background Calibration** | Runs on app startup for seamless UX |
+| **Stored Parameters** | KDF params saved with encrypted data for cross-machine decryption |
+| **Security Floor** | Minimum 64MB memory, 2 iterations (exceeds OWASP 47MB) |
+
+> **Why ~1 second?** This is the standard recommendation in practical cryptography. It provides strong brute-force resistance while remaining acceptable for user experience. Parameters adapt to each machine automatically—no need to guess "standard" settings.
+
+### Memory Baseline (Starting Point for Auto-Tune)
+
+| System RAM | Baseline Memory | Then Auto-Tuned |
+|------------|-----------------|-----------------|
+| ≥ 16 GB | 512 MB | → Calibrated to ~1s |
+| ≥ 8 GB | 256 MB | → Calibrated to ~1s |
+| ≥ 4 GB | 128 MB | → Calibrated to ~1s |
+| < 4 GB | 64 MB | → Calibrated to ~1s |
 
 ### Runtime Optimizations
 
@@ -317,10 +361,10 @@ All backups use **Argon2id** (winner of the Password Hashing Competition) and **
 ### Security Guarantees
 
 - 🔐 **Password never stored** — Not in the file, not on GitHub, not anywhere
-- 🔒 **Zero-knowledge** — Even Marix developers cannot decrypt your backup
-- 🛡️ **Brute-force resistant** — Argon2id requires 16-64MB RAM per attempt
-- ✅ **Tamper-proof** — AES-GCM detects any modification to encrypted data
-- 🔄 **Cross-machine compatible** — Backup stores memory cost for portability
+- 🔒 **Client-side encryption** — All encryption happens locally before data leaves your device
+- 🛡️ **Brute-force resistant** — Argon2id requires 64-512MB RAM per attempt (auto-adjusted)
+- ✅ **Tamper-evident** — AES-GCM (AEAD) authentication detects any modification to encrypted data
+- 🔄 **Cross-machine compatible** — Backup stores KDF parameters for portability
 
 ---
 
@@ -412,8 +456,8 @@ Securely sync your encrypted backup to a private GitHub repository:
 | Layer | Protection |
 |-------|------------|
 | **Client-side encryption** | Data encrypted before leaving device |
-| **Argon2id KDF** | 16-64MB memory, 3 iterations, 4 parallel lanes |
-| **AES-256-GCM** | Authenticated encryption with random IV |
+| **Argon2id KDF** | 64-512MB memory (auto), 4 iterations, 1-4 parallel lanes |
+| **AES-256-GCM** | AEAD with random IV (tamper-evident) |
 | **GitHub storage** | Only encrypted ciphertext stored |
 | **No Marix server** | Direct client ↔ GitHub communication |
 
@@ -427,11 +471,16 @@ Securely sync your encrypted backup to a private GitHub repository:
 
 | Component | Algorithm | Parameters |
 |-----------|-----------|------------|
-| Key Derivation | Argon2id | 16-64MB memory (auto), 3 iterations, 4 lanes |
-| Encryption | AES-256-GCM | 256-bit key, authenticated |
+| Key Derivation | Argon2id | 64-512MB memory (auto), 4 iterations, 1-4 lanes |
+| Encryption | AES-256-GCM | 256-bit key, AEAD (tamper-evident) |
 | Salt | CSPRNG | 32 bytes per backup |
 | IV/Nonce | CSPRNG | 16 bytes per operation |
 | Auth Tag | GCM | 16 bytes |
+
+> **Argon2id Parameters (OWASP 2024 compliant)**:
+> - Memory: 64-512 MB (adaptive, minimum 64MB exceeds OWASP's 47MB recommendation)
+> - Iterations: 4 (within OWASP's 3-5 range)
+> - Parallelism: 1-4 (based on CPU cores)
 
 ### SSH Key Algorithms
 

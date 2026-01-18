@@ -1,0 +1,37 @@
+{
+  "appId": "com.marix.app",
+  "productName": "Marix",
+  "copyright": "Copyright © 2025 datvuong166",
+  "directories": {
+    "output": "release-legacy"
+  },
+  "files": [
+    "dist/**/*",
+    "package.json"
+  ],
+  "asar": true,
+  "compression": "maximum",
+  "npmRebuild": false,
+  "win": {
+    "icon": "icon/icon.ico",
+    "artifactName": "${productName}-${version}-legacy-setup.${ext}",
+    "target": [
+      {
+        "target": "nsis",
+        "arch": ["x64"]
+      }
+    ]
+  },
+  "nsis": {
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true,
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true,
+    "shortcutName": "Marix"
+  },
+  "publish": {
+    "provider": "github",
+    "owner": "marixdev",
+    "repo": "marix"
+  }
+}
