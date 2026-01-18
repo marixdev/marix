@@ -12,7 +12,6 @@ on:
           - all
           - linux
           - windows
-          - windows-legacy
           - macos
 
 jobs:
@@ -74,45 +73,6 @@ jobs:
         with:
           name: Marix-Windows
           path: release/*.exe
-          retention-days: 30
-
-  build-windows-legacy:
-    if: ${{ github.event.inputs.platform == 'all' || github.event.inputs.platform == 'windows-legacy' }}
-    runs-on: windows-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: 'npm'
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Install legacy-compatible packages
-        run: |
-          npm install --save-dev electron@22.3.27 --ignore-scripts
-          npm install --save electron-store@8.1.0 --ignore-scripts
-
-      - name: Build main process (legacy bundle)
-        run: node --max-old-space-size=4096 ./node_modules/webpack/bin/webpack.js --config webpack.main.legacy.js
-
-      - name: Build renderer (legacy compatible)
-        run: node --max-old-space-size=4096 ./node_modules/webpack/bin/webpack.js --config webpack.renderer.legacy.js
-
-      - name: Package Windows legacy
-        run: npx electron-builder --win --config electron-builder-legacy.json
-        env:
-          ELECTRON_BUILDER_PUBLISH: never
-
-      - name: Upload Windows Legacy artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: Marix-Windows-Legacy
-          path: release-legacy/*.exe
           retention-days: 30
 
   build-macos:

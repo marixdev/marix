@@ -76,44 +76,6 @@ jobs:
           path: release/*.exe
           retention-days: 5
 
-  build-windows-legacy:
-    runs-on: windows-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: 'npm'
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Install legacy-compatible packages
-        run: |
-          npm install --save-dev electron@22.3.27 --ignore-scripts
-          npm install --save electron-store@8.1.0 --ignore-scripts
-
-      - name: Build main process (legacy bundle)
-        run: node --max-old-space-size=4096 ./node_modules/webpack/bin/webpack.js --config webpack.main.legacy.js
-
-      - name: Build renderer (legacy compatible)
-        run: node --max-old-space-size=4096 ./node_modules/webpack/bin/webpack.js --config webpack.renderer.legacy.js
-
-      - name: Package Windows legacy
-        run: npx electron-builder --win --config electron-builder-legacy.json
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Upload Windows Legacy artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: windows-legacy-builds
-          path: release-legacy/*.exe
-          retention-days: 5
-
   build-macos:
     runs-on: macos-latest
     steps:
@@ -142,7 +104,7 @@ jobs:
           retention-days: 5
 
   release:
-    needs: [build-linux, build-windows, build-windows-legacy, build-macos]
+    needs: [build-linux, build-windows, build-macos]
     runs-on: ubuntu-latest
     if: success()
     permissions:
@@ -195,7 +157,6 @@ jobs:
           files: |
             artifacts/linux-builds/*
             artifacts/windows-builds/*
-            artifacts/windows-legacy-builds/*
             artifacts/macos-builds/*
           draft: false
           prerelease: false
@@ -204,18 +165,13 @@ jobs:
             ## Marix SSH Client ${{ steps.package-version.outputs.version }}
             
             ### Downloads
-            | Platform | File | Supported OS |
-            |----------|------|--------------|
-            | **Linux** | AppImage, DEB, RPM | Ubuntu 18.04+, Debian 10+, Fedora 32+ |
-            | **Windows** | EXE installer | Windows 10/11 |
-            | **Windows (Legacy)** | EXE installer | Windows 7/8/Server 2012 |
-            | **macOS** | ZIP (Universal) | macOS 10.15+ (Intel & Apple Silicon) |
+            | Platform | File |
+            |----------|------|
+            | **Linux** | AppImage, DEB, RPM |
+            | **Windows** | EXE installer |
+            | **macOS** | ZIP (Intel & Apple Silicon) |
             
             ### Installation
-            
-            **Windows Legacy** (Win 7/8/Server 2012):
-            - Download the file ending with `-legacy-win.exe`
-            - Requires Windows 7 SP1 or later
             
             **macOS**:
             1. Download and extract the ZIP file
