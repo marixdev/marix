@@ -166,7 +166,7 @@ const App: React.FC = () => {
     hasUpdate?: boolean;
   }>({ checking: false });
   const [showUpdateNotification, setShowUpdateNotification] = useState(false);
-  const APP_VERSION = '1.0.6';
+  const APP_VERSION = '1.0.7';
   const APP_AUTHOR = 'Đạt Vũ (Marix)';
   const GITHUB_REPO = 'https://github.com/marixdev/marix';
   
