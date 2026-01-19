@@ -1356,7 +1356,7 @@ ENVCONFIG`;
                         : 'bg-navy-700 text-gray-400 hover:bg-navy-600'
                     }`}
                   >
-                    {cat === 'all' ? 'All' : cat}
+                    {cat === 'all' ? t('all') : cat}
                   </button>
                 ))}
               </div>
@@ -1412,7 +1412,7 @@ ENVCONFIG`;
                   <p className="text-sm text-gray-400">{t(selectedSource.descriptionKey as any)}</p>
                 </div>
                 <button onClick={() => { setStep('select'); setSelectedFrameworkVersion(null); setSelectedNpmVersion(''); }} className="ml-auto text-gray-400 hover:text-white">
-                  Change
+                  {t('sourceChange')}
                 </button>
               </div>
               
@@ -1548,12 +1548,12 @@ ENVCONFIG`;
               {selectedSource.requiresNode && NPM_PACKAGE_MAP[selectedSource.id] && (
                 <div className="space-y-3">
                   <label className="block text-sm font-medium text-gray-300">
-                    Select {selectedSource.name} Version
+                    {t('sourceSelectNpmVersion').replace('{name}', selectedSource.name)}
                   </label>
                   {loadingNpmVersions ? (
                     <div className="flex items-center gap-3 p-4 bg-navy-700 rounded-lg">
                       <div className="animate-spin h-5 w-5 border-2 border-blue-500 border-t-transparent rounded-full"></div>
-                      <span className="text-gray-400">Fetching available versions...</span>
+                      <span className="text-gray-400">{t('sourceFetchingVersions')}</span>
                     </div>
                   ) : npmPackageVersions.length > 0 ? (
                     <div className="max-h-64 overflow-y-auto rounded-lg border border-gray-600 bg-navy-700">
@@ -1572,7 +1572,7 @@ ENVCONFIG`;
                               v{version}
                             </span>
                             {index === 0 && (
-                              <span className="text-xs px-2 py-0.5 rounded bg-green-500/20 text-green-400">Latest</span>
+                              <span className="text-xs px-2 py-0.5 rounded bg-green-500/20 text-green-400">{t('sourceLatest')}</span>
                             )}
                           </button>
                         ))}
@@ -1580,7 +1580,7 @@ ENVCONFIG`;
                     </div>
                   ) : (
                     <div className="p-4 bg-navy-700 rounded-lg text-gray-400 text-center">
-                      <p>Could not fetch versions. Will use latest.</p>
+                      <p>{t('sourceCouldNotFetchVersions')}</p>
                     </div>
                   )}
                 </div>
@@ -1599,7 +1599,7 @@ ENVCONFIG`;
                   onClick={() => { setStep('select'); setSelectedFrameworkVersion(null); setSelectedNpmVersion(''); }}
                   className="w-1/2 px-4 py-2 bg-gray-600 hover:bg-gray-500 rounded-lg text-white"
                 >
-                  Back
+                  {t('sourceBack')}
                 </button>
                 <button
                   onClick={handleVersionContinue}
@@ -1609,7 +1609,7 @@ ENVCONFIG`;
                   }
                   className="w-1/2 px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg text-white font-medium"
                 >
-                  {checkingPhpVersion || loadingSubVersions || loadingNpmVersions ? 'Loading...' : 'Continue'}
+                  {checkingPhpVersion || loadingSubVersions || loadingNpmVersions ? t('sourceLoading') : t('sourceContinue')}
                 </button>
               </div>
             </div>
@@ -1639,13 +1639,13 @@ ENVCONFIG`;
                     setStep('select');
                   }
                 }} className="ml-auto text-gray-400 hover:text-white">
-                  Change
+                  {t('sourceChange')}
                 </button>
               </div>
               
               {/* Installation Location */}
               <div className="space-y-3">
-                <label className="block text-sm font-medium text-gray-300">Installation Location</label>
+                <label className="block text-sm font-medium text-gray-300">{t('sourceInstallLocation')}</label>
                 <div className="flex gap-3">
                   <label className={`flex-1 p-4 rounded-lg border-2 cursor-pointer transition ${
                     installInPlace 
@@ -1661,8 +1661,8 @@ ENVCONFIG`;
                     <div className="flex items-center gap-3">
                       <span className="text-2xl">📍</span>
                       <div>
-                        <p className="font-medium text-white">Install here</p>
-                        <p className="text-xs text-gray-400">Install directly in: {targetPath}</p>
+                        <p className="font-medium text-white">{t('sourceInstallHere')}</p>
+                        <p className="text-xs text-gray-400">{t('sourceInstallHereDesc')} {targetPath}</p>
                       </div>
                     </div>
                   </label>
@@ -1681,8 +1681,8 @@ ENVCONFIG`;
                     <div className="flex items-center gap-3">
                       <span className="text-2xl">📁</span>
                       <div>
-                        <p className="font-medium text-white">Create subfolder</p>
-                        <p className="text-xs text-gray-400">Install in new folder</p>
+                        <p className="font-medium text-white">{t('sourceCreateSubfolder')}</p>
+                        <p className="text-xs text-gray-400">{t('sourceCreateSubfolderDesc')}</p>
                       </div>
                     </div>
                   </label>
@@ -1692,7 +1692,7 @@ ENVCONFIG`;
               {/* Project Name (only if not installing in place) */}
               {!installInPlace && (
                 <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-2">Project Name</label>
+                  <label className="block text-sm font-medium text-gray-300 mb-2">{t('sourceProjectName')}</label>
                   <input
                     type="text"
                     value={projectName}
@@ -1701,7 +1701,7 @@ ENVCONFIG`;
                     placeholder="my-project"
                   />
                   <p className="text-xs text-gray-500 mt-1">
-                    Will be created at: {targetPath}/{projectName}
+                    {t('sourceWillBeCreatedAt')} {targetPath}/{projectName}
                   </p>
                 </div>
               )}
@@ -1717,14 +1717,14 @@ ENVCONFIG`;
                         onChange={(e) => setDbEnabled(e.target.checked)}
                         className="w-4 h-4 rounded border-navy-600 bg-navy-900 text-teal-500 focus:ring-teal-500"
                       />
-                      <span className="text-white font-medium">Configure Database</span>
+                      <span className="text-white font-medium">{t('sourceConfigureDb')}</span>
                     </label>
                   </div>
                   
                   {dbEnabled && (
                     <div className="grid grid-cols-2 gap-4 p-4 bg-navy-700/50 rounded-lg">
                       <div>
-                        <label className="block text-sm text-gray-400 mb-1">Database Type</label>
+                        <label className="block text-sm text-gray-400 mb-1">{t('sourceDbType')}</label>
                         <select
                           value={dbCredentials.type}
                           onChange={(e) => setDbCredentials({ ...dbCredentials, type: e.target.value as any })}
@@ -1737,7 +1737,7 @@ ENVCONFIG`;
                         </select>
                       </div>
                       <div>
-                        <label className="block text-sm text-gray-400 mb-1">Host</label>
+                        <label className="block text-sm text-gray-400 mb-1">{t('sourceDbHost')}</label>
                         <input type="text" value={dbCredentials.host}
                           onChange={(e) => setDbCredentials({ ...dbCredentials, host: e.target.value })}
                           className="w-full px-3 py-2 bg-navy-900 text-white rounded border border-navy-600 focus:border-teal-500 focus:outline-none"
@@ -1745,7 +1745,7 @@ ENVCONFIG`;
                         />
                       </div>
                       <div>
-                        <label className="block text-sm text-gray-400 mb-1">Port</label>
+                        <label className="block text-sm text-gray-400 mb-1">{t('sourceDbPort')}</label>
                         <input type="text" value={dbCredentials.port}
                           onChange={(e) => setDbCredentials({ ...dbCredentials, port: e.target.value })}
                           className="w-full px-3 py-2 bg-navy-900 text-white rounded border border-navy-600 focus:border-teal-500 focus:outline-none"
@@ -1753,7 +1753,7 @@ ENVCONFIG`;
                         />
                       </div>
                       <div>
-                        <label className="block text-sm text-gray-400 mb-1">Database Name</label>
+                        <label className="block text-sm text-gray-400 mb-1">{t('sourceDbName')}</label>
                         <input type="text" value={dbCredentials.database}
                           onChange={(e) => setDbCredentials({ ...dbCredentials, database: e.target.value })}
                           className="w-full px-3 py-2 bg-navy-900 text-white rounded border border-navy-600 focus:border-teal-500 focus:outline-none"
@@ -1761,7 +1761,7 @@ ENVCONFIG`;
                         />
                       </div>
                       <div>
-                        <label className="block text-sm text-gray-400 mb-1">Username</label>
+                        <label className="block text-sm text-gray-400 mb-1">{t('sourceDbUsername')}</label>
                         <input type="text" value={dbCredentials.username}
                           onChange={(e) => setDbCredentials({ ...dbCredentials, username: e.target.value })}
                           className="w-full px-3 py-2 bg-navy-900 text-white rounded border border-navy-600 focus:border-teal-500 focus:outline-none"
@@ -1769,7 +1769,7 @@ ENVCONFIG`;
                         />
                       </div>
                       <div>
-                        <label className="block text-sm text-gray-400 mb-1">Password</label>
+                        <label className="block text-sm text-gray-400 mb-1">{t('sourceDbPassword')}</label>
                         <input type="password" value={dbCredentials.password}
                           onChange={(e) => setDbCredentials({ ...dbCredentials, password: e.target.value })}
                           className="w-full px-3 py-2 bg-navy-900 text-white rounded border border-navy-600 focus:border-teal-500 focus:outline-none"
@@ -1787,8 +1787,8 @@ ENVCONFIG`;
           {step === 'deps' && selectedSource && (
             <div className="space-y-6">
               <div className="text-center mb-6">
-                <h3 className="text-xl font-semibold text-white mb-2">Dependencies Check</h3>
-                <p className="text-gray-400">Checking required tools on the server...</p>
+                <h3 className="text-xl font-semibold text-white mb-2">{t('sourceDepsCheck')}</h3>
+                <p className="text-gray-400">{t('sourceDepsCheckDesc')}</p>
               </div>
               
               {/* Dependency Status Cards */}
@@ -1805,8 +1805,8 @@ ENVCONFIG`;
                         <div>
                           <p className="font-medium text-white">Composer</p>
                           <p className="text-sm text-gray-400">
-                            {deps.composer === null ? 'Checking...' :
-                             deps.composer ? `Installed (v${deps.composerVersion})` : 'Not installed'}
+                            {deps.composer === null ? t('sourceChecking') :
+                             deps.composer ? `${t('sourceInstalled')} (v${deps.composerVersion})` : t('sourceNotInstalled')}
                           </p>
                         </div>
                       </div>
@@ -1816,11 +1816,11 @@ ENVCONFIG`;
                           disabled={isInstalling}
                           className="px-4 py-2 bg-orange-600 hover:bg-orange-500 disabled:bg-navy-600 text-white rounded-lg transition"
                         >
-                          {isInstalling ? 'Installing...' : 'Install Composer'}
+                          {isInstalling ? t('sourceInstalling') : t('sourceInstallComposer')}
                         </button>
                       )}
                       {deps.composer === true && (
-                        <span className="text-green-400">✓ Ready</span>
+                        <span className="text-green-400">✓ {t('sourceReady')}</span>
                       )}
                     </div>
                   </div>
@@ -1838,14 +1838,14 @@ ENVCONFIG`;
                         <div>
                           <p className="font-medium text-white">Node.js</p>
                           <p className="text-sm text-gray-400">
-                            {deps.node === null ? 'Checking...' :
-                             deps.node ? `Installed (${deps.nodeVersion})` : 'Not installed'}
+                            {deps.node === null ? t('sourceChecking') :
+                             deps.node ? `${t('sourceInstalled')} (${deps.nodeVersion})` : t('sourceNotInstalled')}
                           </p>
                         </div>
                       </div>
                       {deps.node === true && (
                         <div className="flex items-center gap-2">
-                          <span className="text-green-400">✓ Ready</span>
+                          <span className="text-green-400">✓ {t('sourceReady')}</span>
                           <button
                             onClick={async () => {
                               const confirmed = window.confirm(
@@ -2010,12 +2010,12 @@ ENVCONFIG`;
         {/* Footer */}
         <div className="flex justify-between items-center px-6 py-4 border-t border-navy-600 bg-navy-800/50">
           <div className="text-sm text-gray-400">
-            {step === 'select' && 'Select a framework or CMS to install'}
-            {step === 'version' && 'Select the version to install'}
-            {step === 'config' && 'Configure your project settings'}
-            {step === 'deps' && (canProceed() ? '✅ All dependencies ready!' : '⚠️ Install required dependencies first')}
-            {step === 'installing' && 'Please wait while we set up your project...'}
-            {step === 'complete' && '✅ Your project is ready!'}
+            {step === 'select' && t('sourceSelectFrameworkHint')}
+            {step === 'version' && t('sourceSelectVersionHint')}
+            {step === 'config' && t('sourceConfigureHint')}
+            {step === 'deps' && (canProceed() ? `✅ ${t('sourceAllDepsReady')}` : `⚠️ ${t('sourceInstallDepsFirst')}`)}
+            {step === 'installing' && t('sourceWaitSetup')}
+            {step === 'complete' && `✅ ${t('sourceProjectReady')}`}
           </div>
           
           <div className="flex gap-3">
@@ -2028,7 +2028,7 @@ ENVCONFIG`;
                     setStep('select');
                   }
                 }} className="px-4 py-2 text-gray-400 hover:text-white transition">
-                  Back
+                  {t('sourceBack')}
                 </button>
                 <button
                   onClick={handleContinueToInstall}
@@ -2041,11 +2041,11 @@ ENVCONFIG`;
                         <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" opacity="0.25" />
                         <path fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" opacity="0.75" />
                       </svg>
-                      Checking...
+                      {t('sourceChecking')}
                     </>
                   ) : (
                     <>
-                      Continue
+                      {t('sourceContinue')}
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                       </svg>
@@ -2058,14 +2058,14 @@ ENVCONFIG`;
             {step === 'deps' && (
               <>
                 <button onClick={() => setStep('config')} className="px-4 py-2 text-gray-400 hover:text-white transition">
-                  Back
+                  {t('sourceBack')}
                 </button>
                 <button
                   onClick={() => checkDependencies()}
                   disabled={checkingDeps}
                   className="px-4 py-2 bg-navy-700 hover:bg-navy-600 text-white rounded-lg transition"
                 >
-                  {checkingDeps ? 'Checking...' : 'Re-check'}
+                  {checkingDeps ? t('sourceChecking') : t('sourceRecheck')}
                 </button>
                 <button
                   onClick={startInstallation}
@@ -2075,7 +2075,7 @@ ENVCONFIG`;
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                   </svg>
-                  Start Installation
+                  {t('sourceStartInstall')}
                 </button>
               </>
             )}
@@ -2088,7 +2088,7 @@ ENVCONFIG`;
                 }}
                 className="px-6 py-2 bg-green-600 hover:bg-green-500 text-white rounded-lg transition"
               >
-                Done
+                {t('sourceDone')}
               </button>
             )}
           </div>

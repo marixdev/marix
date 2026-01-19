@@ -18,7 +18,8 @@ All notable changes to Marix SSH Client will be documented in this file.
   - **Static data fallback**: Complete version history for Laravel 8-10 and WordPress 4.x-5.x stored locally for instant access
 
 - **Source Installer - Multi-language Support**: UI text now fully localized
-  - Added translations for all Source Installer strings
+  - Added 35+ new translation keys for Source Installer
+  - Translated: Back, Continue, Loading, Change, Install Location, Create Subfolder, Project Name, Database Configuration, Dependencies Check, Install Status, etc.
   - Supports all 14 languages (English, Vietnamese, Chinese, Japanese, Korean, French, German, Spanish, Portuguese, Russian, Thai, Malay, Indonesian, Filipino)
 
 - **Source Installer - Realtime Installation Progress**: Installation output now streams in realtime
