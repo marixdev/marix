@@ -22,7 +22,7 @@ interface Props {
     port: number;
     username: string;
     password?: string;
-    protocol?: 'ssh' | 'ftp' | 'ftps' | 'rdp' | 'wss';
+    protocol?: 'ssh' | 'ftp' | 'ftps' | 'rdp' | 'wss' | 'mysql' | 'postgresql' | 'mongodb' | 'redis' | 'sqlite';
   };
   initialLocalPath?: string;
   initialRemotePath?: string;

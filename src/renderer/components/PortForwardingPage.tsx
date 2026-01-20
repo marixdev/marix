@@ -10,7 +10,7 @@ interface Server {
   username: string;
   password?: string;
   privateKey?: string;
-  protocol?: 'ssh' | 'ftp' | 'ftps' | 'rdp' | 'wss';
+  protocol?: 'ssh' | 'ftp' | 'ftps' | 'rdp' | 'wss' | 'mysql' | 'postgresql' | 'mongodb' | 'redis' | 'sqlite';
 }
 
 interface PortForward {

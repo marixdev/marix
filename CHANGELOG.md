@@ -2,6 +2,45 @@
 
 All notable changes to Marix SSH Client will be documented in this file.
 
+## [1.0.9] - 2026-01-20
+
+### Added
+- **Database Server Management**: Connect and manage database servers directly from the sidebar
+  - **MySQL/MariaDB**: Full query editor, table browser, results viewer
+  - **PostgreSQL**: Query execution with results grid
+  - **MongoDB**: Document browser and query interface
+  - **Redis**: Key-value browser and command interface
+  - **SQLite**: Local database file support
+  - Database servers appear in sidebar alongside SSH servers
+  - Query editor with syntax highlighting
+  - Export query results to CSV/JSON
+  - Connection pooling and session management
+
+- **Command Snippets**: Unified system combining reusable command templates with keyboard shortcuts
+  - Save frequently-used commands for quick access
+  - Assign hotkeys (`Ctrl+Shift+Key` or `Cmd+Shift+Key`) for instant execution
+  - Organize by category (System, Docker, Git, Network, Database, Custom)
+  - Scope-based visibility: Global, per-host, or per-group
+  - Snippets Panel in terminal sidebar for quick command insertion
+  - Search and filter snippets by name, command, or tags
+  - Migrates existing Custom Hotkeys automatically (from v1.0.6)
+
+- **macOS RDP Support**: Remote Desktop connections now work on macOS using Microsoft Remote Desktop
+  - Automatically creates `.rdp` configuration file with server settings
+  - Opens connection via Microsoft Remote Desktop app
+  - Supports custom port, username, and fullscreen options
+  - Requires [Microsoft Remote Desktop](https://apps.apple.com/app/microsoft-remote-desktop/id1295203466) from Mac App Store
+
+- **Linux RDP Auto-Install**: Automatic dependency detection and installation for RDP on Linux
+  - Checks for `xfreerdp3` (FreeRDP client) and `xdotool` (window automation)
+  - Auto-detects Linux distribution (Debian/Ubuntu, Fedora/RHEL, Arch)
+  - One-click installation with realtime terminal output
+  - Uses `pkexec` for secure GUI-based password authentication
+  - Supported package managers:
+    - **Debian/Ubuntu**: `apt install freerdp3-x11 xdotool`
+    - **Fedora/RHEL**: `dnf install freerdp xdotool`
+    - **Arch**: `pacman -S freerdp xdotool`
+
 ## [1.0.8] - 2026-01-19
 
 ### Added

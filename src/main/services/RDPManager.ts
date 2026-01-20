@@ -1,5 +1,5 @@
 import { EventEmitter } from 'events';
-import { spawn, ChildProcess, exec } from 'child_process';
+import { spawn, ChildProcess, exec, execSync } from 'child_process';
 import * as os from 'os';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -19,13 +19,199 @@ interface RDPConnection {
   rdpFilePath?: string;
 }
 
+interface DependencyStatus {
+  xfreerdp3: boolean;
+  xdotool: boolean;
+  distro: 'debian' | 'fedora' | 'arch' | 'unknown';
+}
+
 export class RDPManager {
   private connections: Map<string, RDPConnection> = new Map();
   private isWindows: boolean = os.platform() === 'win32';
+  private isMacOS: boolean = os.platform() === 'darwin';
+  private isLinux: boolean = os.platform() === 'linux';
+
+  /**
+   * Check if RDP dependencies are installed (Linux only)
+   */
+  checkDependencies(): DependencyStatus {
+    if (!this.isLinux) {
+      return { xfreerdp3: true, xdotool: true, distro: 'unknown' };
+    }
+
+    let xfreerdp3 = false;
+    let xdotool = false;
+    let distro: DependencyStatus['distro'] = 'unknown';
+
+    // Check xfreerdp3
+    try {
+      execSync('which xfreerdp3', { stdio: 'pipe' });
+      xfreerdp3 = true;
+    } catch {
+      // Also check for xfreerdp (older name)
+      try {
+        execSync('which xfreerdp', { stdio: 'pipe' });
+        xfreerdp3 = true;
+      } catch {
+        xfreerdp3 = false;
+      }
+    }
+
+    // Check xdotool
+    try {
+      execSync('which xdotool', { stdio: 'pipe' });
+      xdotool = true;
+    } catch {
+      xdotool = false;
+    }
+
+    // Detect Linux distribution
+    try {
+      if (fs.existsSync('/etc/os-release')) {
+        const osRelease = fs.readFileSync('/etc/os-release', 'utf8');
+        if (osRelease.includes('ID=debian') || osRelease.includes('ID=ubuntu') || osRelease.includes('ID_LIKE=debian')) {
+          distro = 'debian';
+        } else if (osRelease.includes('ID=fedora') || osRelease.includes('ID=rhel') || osRelease.includes('ID_LIKE=fedora')) {
+          distro = 'fedora';
+        } else if (osRelease.includes('ID=arch') || osRelease.includes('ID_LIKE=arch')) {
+          distro = 'arch';
+        }
+      }
+    } catch {
+      distro = 'unknown';
+    }
+
+    console.log(`[RDPManager] Dependencies check: xfreerdp3=${xfreerdp3}, xdotool=${xdotool}, distro=${distro}`);
+    return { xfreerdp3, xdotool, distro };
+  }
+
+  /**
+   * Get installation commands for missing dependencies
+   */
+  getInstallCommands(deps: DependencyStatus): string[] {
+    const commands: string[] = [];
+    
+    if (deps.xfreerdp3 && deps.xdotool) {
+      return commands;
+    }
+
+    const packages: string[] = [];
+    
+    if (!deps.xfreerdp3) {
+      switch (deps.distro) {
+        case 'debian':
+          packages.push('freerdp3-x11');
+          break;
+        case 'fedora':
+          packages.push('freerdp');
+          break;
+        case 'arch':
+          packages.push('freerdp');
+          break;
+        default:
+          packages.push('freerdp3-x11'); // Default to Debian package name
+      }
+    }
+
+    if (!deps.xdotool) {
+      packages.push('xdotool');
+    }
+
+    if (packages.length === 0) return commands;
+
+    // Use pkexec instead of sudo - it shows a GUI password dialog
+    switch (deps.distro) {
+      case 'debian':
+        commands.push(`pkexec apt update`);
+        commands.push(`pkexec apt install -y ${packages.join(' ')}`);
+        break;
+      case 'fedora':
+        commands.push(`pkexec dnf install -y ${packages.join(' ')}`);
+        break;
+      case 'arch':
+        commands.push(`pkexec pacman -S --noconfirm ${packages.join(' ')}`);
+        break;
+      default:
+        // Try apt as default
+        commands.push(`pkexec apt update`);
+        commands.push(`pkexec apt install -y ${packages.join(' ')}`);
+    }
+
+    return commands;
+  }
+
+  /**
+   * Install missing dependencies with streaming output
+   */
+  installDependencies(
+    deps: DependencyStatus,
+    onData: (data: string) => void,
+    onComplete: (success: boolean) => void
+  ): void {
+    const commands = this.getInstallCommands(deps);
+    
+    if (commands.length === 0) {
+      onData('✓ All dependencies are already installed\n');
+      onComplete(true);
+      return;
+    }
+
+    const runCommands = async () => {
+      for (const cmd of commands) {
+        onData(`\x1b[36m$ ${cmd}\x1b[0m\n`);
+        
+        try {
+          const success = await this.runCommandWithStream(cmd, onData);
+          if (!success) {
+            onData(`\x1b[31m✗ Command failed: ${cmd}\x1b[0m\n`);
+            onComplete(false);
+            return;
+          }
+        } catch (err: any) {
+          onData(`\x1b[31m✗ Error: ${err.message}\x1b[0m\n`);
+          onComplete(false);
+          return;
+        }
+      }
+      
+      onData(`\x1b[32m✓ Dependencies installed successfully!\x1b[0m\n`);
+      onComplete(true);
+    };
+
+    runCommands();
+  }
+
+  /**
+   * Run a command with streaming output
+   */
+  private runCommandWithStream(cmd: string, onData: (data: string) => void): Promise<boolean> {
+    return new Promise((resolve) => {
+      const process = spawn('bash', ['-c', cmd], {
+        stdio: ['inherit', 'pipe', 'pipe'],
+      });
+
+      process.stdout?.on('data', (data: Buffer) => {
+        onData(data.toString());
+      });
+
+      process.stderr?.on('data', (data: Buffer) => {
+        onData(data.toString());
+      });
+
+      process.on('close', (code) => {
+        resolve(code === 0);
+      });
+
+      process.on('error', (err) => {
+        onData(`Error: ${err.message}\n`);
+        resolve(false);
+      });
+    });
+  }
 
   /**
    * Create RDP connection to Windows server
-   * Uses xfreerdp3 on Linux, mstsc on Windows
+   * Uses Microsoft Remote Desktop on macOS, xfreerdp3 on Linux, mstsc on Windows
    */
   connect(
     connectionId: string,
@@ -46,6 +232,8 @@ export class RDPManager {
 
       if (this.isWindows) {
         return this.connectMstsc(connectionId, config, emitter);
+      } else if (this.isMacOS) {
+        return this.connectMacOS(connectionId, config, emitter);
       } else {
         return this.connectXfreerdp(connectionId, config, emitter);
       }
@@ -162,6 +350,102 @@ export class RDPManager {
     setTimeout(() => {
       emitter.emit('connect');
     }, 1000);
+
+    return { emitter, success: true };
+  }
+
+  /**
+   * Connect using Microsoft Remote Desktop (macOS)
+   */
+  private connectMacOS(
+    connectionId: string,
+    config: {
+      host: string;
+      port: number;
+      username: string;
+      password: string;
+      domain?: string;
+      screen?: { width: number; height: number };
+      fullscreen?: boolean;
+    },
+    emitter: EventEmitter
+  ): { emitter: EventEmitter; success: boolean; error?: string } {
+    const width = config.screen?.width || 1280;
+    const height = config.screen?.height || 720;
+
+    // Create .rdp file for Microsoft Remote Desktop on macOS
+    const rdpContent = [
+      `full address:s:${config.host}:${config.port}`,
+      `username:s:${config.domain ? `${config.domain}\\${config.username}` : config.username}`,
+      `screen mode id:i:${config.fullscreen ? 2 : 1}`,
+      `desktopwidth:i:${width}`,
+      `desktopheight:i:${height}`,
+      `session bpp:i:32`,
+      `compression:i:1`,
+      `keyboardhook:i:2`,
+      `audiocapturemode:i:0`,
+      `videoplaybackmode:i:1`,
+      `connection type:i:7`,
+      `networkautodetect:i:1`,
+      `bandwidthautodetect:i:1`,
+      `displayconnectionbar:i:1`,
+      `disable wallpaper:i:0`,
+      `allow font smoothing:i:1`,
+      `allow desktop composition:i:1`,
+      `disable full window drag:i:0`,
+      `disable menu anims:i:0`,
+      `disable themes:i:0`,
+      `redirectclipboard:i:1`,
+      `redirectprinters:i:0`,
+      `redirectdrives:i:0`,
+      `autoreconnection enabled:i:1`,
+      `authentication level:i:0`,
+      `prompt for credentials:i:1`,  // macOS app handles credentials via its own UI
+      `negotiate security layer:i:1`,
+    ].join('\r\n');
+
+    // Save .rdp file to temp directory
+    const tempDir = os.tmpdir();
+    const rdpFilePath = path.join(tempDir, `marix_rdp_${connectionId}.rdp`);
+    fs.writeFileSync(rdpFilePath, rdpContent);
+    console.log(`[RDPManager] Created RDP file for macOS: ${rdpFilePath}`);
+
+    // Try to open with Microsoft Remote Desktop app
+    // The app can be installed from Mac App Store or via brew: brew install --cask microsoft-remote-desktop
+    const rdpProcess = spawn('open', ['-a', 'Microsoft Remote Desktop', rdpFilePath], {
+      detached: true,
+      stdio: 'ignore',
+    });
+
+    rdpProcess.unref();
+
+    rdpProcess.on('error', (err) => {
+      console.error(`[RDPManager] Microsoft Remote Desktop error:`, err);
+      // Fallback: try opening .rdp file directly (will use default app)
+      const fallbackProcess = spawn('open', [rdpFilePath], {
+        detached: true,
+        stdio: 'ignore',
+      });
+      fallbackProcess.unref();
+      fallbackProcess.on('error', (fallbackErr) => {
+        console.error(`[RDPManager] Fallback open error:`, fallbackErr);
+        emitter.emit('error', new Error('Microsoft Remote Desktop is not installed. Please install it from the Mac App Store.'));
+      });
+    });
+
+    // Store connection
+    this.connections.set(connectionId, {
+      process: rdpProcess,
+      connected: true,
+      emitter,
+      config,
+      rdpFilePath,
+    });
+
+    // Emit connect after a short delay (app opens externally)
+    setTimeout(() => {
+      emitter.emit('connect');
+    }, 1500);
 
     return { emitter, success: true };
   }

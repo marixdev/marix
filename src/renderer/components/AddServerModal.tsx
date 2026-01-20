@@ -30,7 +30,7 @@ const AddServerModal: React.FC<Props> = ({ server, existingTags = [], onSave, on
     username: '',
     password: '',
     icon: 'linux',
-    protocol: 'ssh' as 'ssh' | 'ftp' | 'ftps' | 'rdp' | 'wss',
+    protocol: 'ssh' as 'ssh' | 'ftp' | 'ftps' | 'rdp' | 'wss' | 'mysql' | 'postgresql' | 'mongodb' | 'redis' | 'sqlite',
     authType: 'password' as 'password' | 'key',
     privateKey: '',
     passphrase: '',
@@ -40,6 +40,11 @@ const AddServerModal: React.FC<Props> = ({ server, existingTags = [], onSave, on
     sshKeyId: '',  // Selected SSH key from Keychain
     knockEnabled: false,  // Port knocking enabled
     knockSequence: [] as number[],  // Port knocking sequence
+    // Database-specific fields
+    database: '',  // Database name
+    sslEnabled: false,  // SSL for database
+    mongoUri: '',  // MongoDB connection URI
+    sqliteFile: '',  // SQLite file path
   });
   const [tagInput, setTagInput] = useState('');
   const [showTagSuggestions, setShowTagSuggestions] = useState(false);
@@ -84,6 +89,11 @@ const AddServerModal: React.FC<Props> = ({ server, existingTags = [], onSave, on
         sshKeyId: (server as any).sshKeyId || '',
         knockEnabled: server.knockEnabled || false,
         knockSequence: server.knockSequence || [],
+        // Database-specific fields
+        database: (server as any).database || '',
+        sslEnabled: (server as any).sslEnabled || false,
+        mongoUri: (server as any).mongoUri || '',
+        sqliteFile: (server as any).sqliteFile || '',
       });
       
       // Set knock input string
@@ -113,7 +123,7 @@ const AddServerModal: React.FC<Props> = ({ server, existingTags = [], onSave, on
     tag => tag.toLowerCase().includes(tagInput.toLowerCase()) && !data.tags.includes(tag)
   );
 
-  const handleProtocolChange = (protocol: 'ssh' | 'ftp' | 'ftps' | 'rdp' | 'wss') => {
+  const handleProtocolChange = (protocol: 'ssh' | 'ftp' | 'ftps' | 'rdp' | 'wss' | 'mysql' | 'postgresql' | 'mongodb' | 'redis' | 'sqlite') => {
     let defaultPort = 22;
     let defaultIcon = data.icon;
     
@@ -129,7 +139,22 @@ const AddServerModal: React.FC<Props> = ({ server, existingTags = [], onSave, on
     } else if (protocol === 'wss') {
       defaultPort = 443;
       defaultIcon = 'wss';
-    } else if (data.icon === 'ftp' || data.icon === 'sftp' || data.icon === 'windows' || data.icon === 'wss') {
+    } else if (protocol === 'mysql') {
+      defaultPort = 3306;
+      defaultIcon = 'mysql';
+    } else if (protocol === 'postgresql') {
+      defaultPort = 5432;
+      defaultIcon = 'postgresql';
+    } else if (protocol === 'mongodb') {
+      defaultPort = 27017;
+      defaultIcon = 'mongodb';
+    } else if (protocol === 'redis') {
+      defaultPort = 6379;
+      defaultIcon = 'redis';
+    } else if (protocol === 'sqlite') {
+      defaultPort = 0;
+      defaultIcon = 'sqlite';
+    } else if (data.icon === 'ftp' || data.icon === 'sftp' || data.icon === 'windows' || data.icon === 'wss' || data.icon === 'mysql' || data.icon === 'postgresql' || data.icon === 'mongodb' || data.icon === 'redis' || data.icon === 'sqlite') {
       // Reset to linux if switching to SSH
       defaultIcon = 'linux';
     }
@@ -370,14 +395,25 @@ const AddServerModal: React.FC<Props> = ({ server, existingTags = [], onSave, on
             <label className="block text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">{t('protocol')}</label>
             <select
               value={data.protocol}
-              onChange={(e) => handleProtocolChange(e.target.value as 'ssh' | 'ftp' | 'ftps' | 'rdp')}
+              onChange={(e) => handleProtocolChange(e.target.value as any)}
               className="w-full px-3 py-2.5 bg-navy-900 border border-navy-600 rounded-lg text-sm text-white focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500 transition cursor-pointer"
             >
-              <option value="ssh">SSH (Secure Shell)</option>
-              <option value="ftp">FTP (File Transfer Protocol)</option>
-              <option value="ftps">FTPS (FTP over SSL/TLS)</option>
-              <option value="rdp">RDP (Windows Remote Desktop)</option>
-              <option value="wss">WSS (WebSocket Secure)</option>
+              <optgroup label="Remote Access">
+                <option value="ssh">SSH (Secure Shell)</option>
+                <option value="rdp">RDP (Windows Remote Desktop)</option>
+                <option value="wss">WSS (WebSocket Secure)</option>
+              </optgroup>
+              <optgroup label="File Transfer">
+                <option value="ftp">FTP (File Transfer Protocol)</option>
+                <option value="ftps">FTPS (FTP over SSL/TLS)</option>
+              </optgroup>
+              <optgroup label="Databases">
+                <option value="mysql">{t('dbMysql')}</option>
+                <option value="postgresql">{t('dbPostgresql')}</option>
+                <option value="mongodb">{t('dbMongodb')}</option>
+                <option value="redis">{t('dbRedis')}</option>
+                <option value="sqlite">{t('dbSqlite')}</option>
+              </optgroup>
             </select>
           </div>
 
@@ -409,6 +445,38 @@ const AddServerModal: React.FC<Props> = ({ server, existingTags = [], onSave, on
                 required
               />
               <p className="text-xs text-gray-500 mt-1">Enter the full WebSocket URL including protocol and port</p>
+            </div>
+          )}
+
+          {/* MongoDB URI field */}
+          {data.protocol === 'mongodb' && (
+            <div>
+              <label className="block text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">{t('dbMongoUri')} <span className="text-gray-500">({t('optional')})</span></label>
+              <input
+                type="text"
+                name="mongoUri"
+                value={data.mongoUri}
+                onChange={handleChange}
+                className="w-full px-3 py-2.5 bg-navy-900 border border-navy-600 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500 transition font-mono"
+                placeholder="mongodb://user:pass@host:port/database"
+              />
+              <p className="text-xs text-gray-500 mt-1">Use full URI or fill in host/port/credentials below</p>
+            </div>
+          )}
+
+          {/* SQLite file field */}
+          {data.protocol === 'sqlite' && (
+            <div>
+              <label className="block text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">{t('dbSqliteFile')} <span className="text-red-400">*</span></label>
+              <input
+                type="text"
+                name="sqliteFile"
+                value={data.sqliteFile}
+                onChange={handleChange}
+                className="w-full px-3 py-2.5 bg-navy-900 border border-navy-600 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500 transition font-mono"
+                placeholder="/path/to/database.db"
+                required
+              />
             </div>
           )}
 
@@ -656,6 +724,35 @@ const AddServerModal: React.FC<Props> = ({ server, existingTags = [], onSave, on
                 className="w-full px-3 py-2.5 bg-navy-900 border border-navy-600 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500 transition"
                 placeholder="WORKGROUP or DOMAIN"
               />
+            </div>
+          )}
+
+          {/* Database name field (for database protocols) */}
+          {['mysql', 'postgresql', 'mongodb'].includes(data.protocol) && (
+            <div>
+              <label className="block text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">{t('dbName')} <span className="text-gray-500">({t('optional')})</span></label>
+              <input
+                type="text"
+                name="database"
+                value={data.database}
+                onChange={handleChange}
+                className="w-full px-3 py-2.5 bg-navy-900 border border-navy-600 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500 transition"
+                placeholder={data.protocol === 'mongodb' ? 'admin' : data.protocol === 'postgresql' ? 'postgres' : 'mysql'}
+              />
+            </div>
+          )}
+
+          {/* SSL toggle for database protocols */}
+          {['mysql', 'postgresql', 'mongodb', 'redis'].includes(data.protocol) && (
+            <div className="flex items-center gap-3">
+              <input
+                type="checkbox"
+                id="sslEnabled"
+                checked={data.sslEnabled}
+                onChange={(e) => setData(prev => ({ ...prev, sslEnabled: e.target.checked }))}
+                className="w-4 h-4 rounded bg-navy-900 border-navy-600 text-teal-500 focus:ring-teal-500"
+              />
+              <label htmlFor="sslEnabled" className="text-sm text-gray-300">{t('dbSslEnabled')}</label>
             </div>
           )}
 

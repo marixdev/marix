@@ -26,6 +26,7 @@ import { PortKnockService } from './services/PortKnockService';
 import { LANSharingService } from './services/LANSharingService';
 import { lanFileTransferService } from './services/LANFileTransferService';
 import { getGoogleDriveService } from './services/GoogleDriveService';
+import { initDatabaseHandlers } from './databaseService';
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
@@ -224,6 +225,9 @@ app.whenReady().then(() => {
   createWindow();
   createTray();
   createAppMenu();
+  
+  // Initialize database handlers
+  initDatabaseHandlers();
   
   // Start LAN sharing service on app startup for always-on discovery
   lanSharingService.start().then(() => {
@@ -915,6 +919,44 @@ ipcMain.handle('ftp:writeFile', async (event, connectionId, remotePath, content)
 });
 
 // RDP (Windows Remote Desktop) handlers
+// Check RDP dependencies (Linux only)
+ipcMain.handle('rdp:checkDeps', async () => {
+  try {
+    const deps = rdpManager.checkDependencies();
+    return { success: true, deps };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+});
+
+// Install RDP dependencies with streaming output
+ipcMain.handle('rdp:installDeps', async (event) => {
+  try {
+    const deps = rdpManager.checkDependencies();
+    
+    if (deps.xfreerdp3 && deps.xdotool) {
+      return { success: true, message: 'All dependencies already installed' };
+    }
+
+    return new Promise((resolve) => {
+      rdpManager.installDependencies(
+        deps,
+        (data: string) => {
+          // Stream data to renderer
+          if (event.sender && !event.sender.isDestroyed()) {
+            event.sender.send('rdp:installOutput', data);
+          }
+        },
+        (success: boolean) => {
+          resolve({ success });
+        }
+      );
+    });
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+});
+
 ipcMain.handle('rdp:connect', async (event, connectionId, config) => {
   try {
     const { emitter, success, error } = rdpManager.connect(connectionId, {

@@ -444,6 +444,115 @@ export interface Translations {
   sourceNextJSDesc: string;
   sourceTypeScriptDesc: string;
   
+  // Database
+  database: string;
+  databaseServer: string;
+  dbConnecting: string;
+  dbConnectionFailed: string;
+  dbRetry: string;
+  dbSelectDatabase: string;
+  dbNoTables: string;
+  dbSelectDatabaseFirst: string;
+  dbConnected: string;
+  dbBrowser: string;
+  dbQuery: string;
+  dbStructure: string;
+  dbRows: string;
+  dbRefresh: string;
+  dbNoData: string;
+  dbSelectTableToView: string;
+  dbPressCtrlEnter: string;
+  dbClear: string;
+  dbExecuting: string;
+  dbExecute: string;
+  dbError: string;
+  dbQuerySuccess: string;
+  dbRowsAffected: string;
+  dbWriteQuery: string;
+  dbStructureInfo: string;
+  dbSelectTableForStructure: string;
+  dbColumnName: string;
+  dbColumnType: string;
+  dbColumnNullable: string;
+  dbColumnKey: string;
+  dbColumnDefault: string;
+  dbColumnExtra: string;
+  dbNoStructure: string;
+  dbColumns: string;
+  dbPrimaryKeys: string;
+  dbRequiredFields: string;
+  dbDoubleClickToEdit: string;
+  dbActions: string;
+  dbEdit: string;
+  dbNoPrimaryKey: string;
+  dbEditRow: string;
+  dbSaving: string;
+  dbAddColumn: string;
+  dbDeleteColumn: string;
+  dbConfirmDeleteColumn: string;
+  dbMysql: string;
+  dbPostgresql: string;
+  dbMongodb: string;
+  dbRedis: string;
+  dbSqlite: string;
+  dbName: string;
+  dbSslEnabled: string;
+  dbMongoUri: string;
+  dbSqliteFile: string;
+  dbQueryHistory: string;
+  dbClearHistory: string;
+  dbCopyAsJSON: string;
+  dbCopyAsCSV: string;
+  dbCopyColumn: string;
+  dbDeleteRow: string;
+  dbConfirmDeleteRow: string;
+  dbFilter: string;
+  dbSelectColumn: string;
+  dbFilterValue: string;
+  dbAddFilter: string;
+  dbApplyFilter: string;
+  dbClearFilters: string;
+  
+  // ERD Diagram
+  dbERD: string;
+  erdLoading: string;
+  erdZoomIn: string;
+  erdZoomOut: string;
+  erdResetZoom: string;
+  erdFitToScreen: string;
+  erdLegend: string;
+  erdPrimaryKey: string;
+  erdForeignKey: string;
+  erdRequired: string;
+  erdHelp: string;
+  erdNoTables: string;
+  erdSelectDatabase: string;
+  
+  // Import/Export Database
+  dbImportExport: string;
+  dbImportExportDesc: string;
+  dbImport: string;
+  dbImportSQLFile: string;
+  dbSelectFile: string;
+  dbClickToUpload: string;
+  dbDropAllTables: string;
+  dbDropAllTablesDesc: string;
+  dbImporting: string;
+  dbStartImport: string;
+  dbExport: string;
+  dbExportToSQL: string;
+  dbIncludeDropTable: string;
+  dbIncludeDropTableDesc: string;
+  dbIncludeStructure: string;
+  dbIncludeStructureDesc: string;
+  dbIncludeData: string;
+  dbIncludeDataDesc: string;
+  dbSelectTables: string;
+  dbAllTables: string;
+  dbExporting: string;
+  dbDownloadSQL: string;
+  dbExportInfo: string;
+  
   // WebSocket
   wssTypeMessage: string;
   wssAutoScroll: string;
@@ -696,7 +805,7 @@ export interface Translations {
   totpSecurityInfo: string;
   add: string;
   
-  // Custom Hotkeys
+  // Custom Hotkeys / Snippets
   customHotkeys: string;
   hotkeyDescription: string;
   addHotkey: string;
@@ -728,6 +837,60 @@ export interface Translations {
   reservedSwitchTerminalSFTP: string;
   reservedLocalTerminal: string;
   reservedPaste: string;
+  
+  // Command Snippets
+  snippets: string;
+  snippetsDescription: string;
+  addSnippet: string;
+  editSnippet: string;
+  snippetName: string;
+  snippetNameHint: string;
+  snippetCommand: string;
+  snippetCommandHint: string;
+  snippetCategory: string;
+  snippetTags: string;
+  snippetTagsHint: string;
+  snippetOptionalHotkey: string;
+  snippetOptionalHotkeyHint: string;
+  noSnippetsYet: string;
+  clickAddSnippet: string;
+  snippetUsage: string;
+  snippetUsageTip1: string;
+  snippetUsageTip2: string;
+  snippetUsageTip3: string;
+  snippetPanel: string;
+  snippetSearch: string;
+  allCategories: string;
+  insertCommand: string;
+  snippetClickToInsert: string;
+  confirmDeleteSnippet: string;
+  importSnippets: string;
+  exportSnippets: string;
+  importSuccess: string;
+  exportSuccess: string;
+  snippetShowPanel: string;
+  snippetHidePanel: string;
+  snippetAll: string;
+  snippetNoSnippets: string;
+  snippetAddFromMenu: string;
+  snippetNoResults: string;
+  snippetClickHint: string;
+  snippetErrorName: string;
+  snippetErrorCommand: string;
+  snippetConfirmDelete: string;
+  snippetImported: string;
+  snippetImportError: string;
+  commandSnippets: string;
+  snippetDescription: string;
+  snippetAdd: string;
+  snippetAllCategories: string;
+  snippetEdit: string;
+  snippetSelectCategory: string;
+  snippetDescriptionPlaceholder: string;
+  snippetHotkey: string;
+  snippetTagsPlaceholder: string;
+  snippetAddFirst: string;
+  snippetReservedKeys: string;
   
   // Port Forwarding
   portForwarding: string;

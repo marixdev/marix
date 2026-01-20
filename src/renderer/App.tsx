@@ -5,7 +5,9 @@ import ServerList from './components/ServerList';
 import XTermTerminal from './components/XTermTerminal';
 import DualPaneSFTP from './components/DualPaneSFTP';
 import RDPViewer from './components/RDPViewer';
+import RDPDepsInstaller from './components/RDPDepsInstaller';
 import WSSViewer from './components/WSSViewer';
+import DatabaseClient from './components/DatabaseClient';
 import AddServerModal from './components/AddServerModal';
 import ThemeSelector from './components/ThemeSelector';
 import LanguageSelector from './components/LanguageSelector';
@@ -17,7 +19,7 @@ import LANFileTransferPage from './components/LANFileTransferPage';
 import PairCodePopup from './components/PairCodePopup';
 import KnownHostsPage from './components/KnownHostsPage';
 import TwoFactorPage from './components/TwoFactorPage';
-import HotkeyPage from './components/HotkeyPage';
+import SnippetPage from './components/SnippetPage';
 import PortForwardingPage from './components/PortForwardingPage';
 import { BackupModal } from './components/BackupModal';
 import { useTerminalContext } from './contexts/TerminalContext';
@@ -31,7 +33,7 @@ export interface Server {
   username: string;
   password?: string;
   icon?: string;  // OS icon name: ubuntu, debian, centos, windows, etc.
-  protocol?: 'ssh' | 'ftp' | 'ftps' | 'rdp' | 'wss';
+  protocol?: 'ssh' | 'ftp' | 'ftps' | 'rdp' | 'wss' | 'mysql' | 'postgresql' | 'mongodb' | 'redis' | 'sqlite';
   authType?: 'password' | 'key';
   privateKey?: string;
   passphrase?: string;
@@ -41,13 +43,21 @@ export interface Server {
   sshKeyId?: string;  // ID of SSH key in keychain (if using key from SSH Key Manager)
   knockEnabled?: boolean;  // Enable port knocking
   knockSequence?: number[];  // Port sequence for knocking (e.g., [7000, 8000, 9000])
+  // Database-specific fields
+  database?: string;  // Database name to connect to
+  sslEnabled?: boolean;  // Use SSL for database connection
+  sslCa?: string;  // SSL CA certificate
+  sslCert?: string;  // SSL client certificate
+  sslKey?: string;  // SSL client key
+  mongoUri?: string;  // MongoDB connection URI (alternative to host/port)
+  sqliteFile?: string;  // Path to SQLite file (for remote SQLite via SSH)
 }
 
 export interface Session {
   id: string;
   server: Server;
   connectionId: string;
-  type: 'terminal' | 'sftp' | 'rdp' | 'wss';
+  type: 'terminal' | 'sftp' | 'rdp' | 'wss' | 'database';
   theme?: string;
   sftpPaths?: {
     localPath: string;
@@ -69,7 +79,7 @@ const App: React.FC = () => {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [currentTheme, setCurrentTheme] = useState('Dracula');
   const [appTheme, setAppTheme] = useState<'dark' | 'light'>('dark');
-  const [activeMenu, setActiveMenu] = useState<'hosts' | 'settings' | 'cloudflare' | 'nettools' | 'tools' | 'sshkeys' | 'knownhosts' | 'twofactor' | 'hotkeys' | 'portforward' | 'about' | 'sendfiles'>('hosts');
+  const [activeMenu, setActiveMenu] = useState<'hosts' | 'settings' | 'cloudflare' | 'nettools' | 'tools' | 'sshkeys' | 'knownhosts' | 'twofactor' | 'snippets' | 'portforward' | 'about' | 'sendfiles'>('hosts');
   const [activeTag, setActiveTag] = useState<string | null>(null);  // Filter by tag
   const [tagSearch, setTagSearch] = useState('');  // Search tags
   const [tagColors, setTagColors] = useState<{ [key: string]: string }>({});  // Tag colors
@@ -192,6 +202,10 @@ const App: React.FC = () => {
   
   // Connecting state (for UI feedback)
   const [connectingServerId, setConnectingServerId] = useState<string | null>(null);
+  
+  // RDP dependency installer state (Linux only)
+  const [showRDPDepsInstaller, setShowRDPDepsInstaller] = useState(false);
+  const [pendingRDPServer, setPendingRDPServer] = useState<Server | null>(null);
   
   // GitHub OAuth state
   const [githubUser, setGithubUser] = useState<{ login: string; avatar_url: string; name: string } | null>(null);
@@ -1718,6 +1732,39 @@ const App: React.FC = () => {
     }
   };
 
+  // RDP connection function (used by handleConnect and after deps install)
+  const connectToRDP = async (server: Server) => {
+    const connectionId = `rdp-${server.username}@${server.host}:${server.port}`;
+    const result = await ipcRenderer.invoke('rdp:connect', connectionId, {
+      host: server.host,
+      port: server.port || 3389,
+      username: server.username,
+      password: server.password,
+      domain: server.domain,
+      screen: { width: 1280, height: 720 },
+    });
+
+    if (!result.success) {
+      setConnectingServerId(null);
+      alert('RDP Connection failed:\n\n' + (result.error || 'Unknown error'));
+      return;
+    }
+
+    const rdpSession: Session = {
+      id: `rdp-${Date.now()}`,
+      server,
+      connectionId,
+      type: 'rdp',
+      theme: currentTheme,
+    };
+
+    setSessions(prev => [...prev, rdpSession]);
+    setActiveSessionId(rdpSession.id);
+    setSidebarOpen(false);
+    setConnectingServerId(null);
+    console.log('[App] RDP Session created:', rdpSession.id);
+  };
+
   const handleConnect = async (server: Server) => {
     try {
       // Check if already connected to this server
@@ -1799,35 +1846,22 @@ const App: React.FC = () => {
 
       // Handle RDP connections (Windows Remote Desktop)
       if (protocol === 'rdp') {
-        const connectionId = `rdp-${server.username}@${server.host}:${server.port}`;
-        const result = await ipcRenderer.invoke('rdp:connect', connectionId, {
-          host: server.host,
-          port: server.port || 3389,
-          username: server.username,
-          password: server.password,
-          domain: server.domain,
-          screen: { width: 1280, height: 720 },
-        });
-
-        if (!result.success) {
-          setConnectingServerId(null);
-          alert('RDP Connection failed:\n\n' + (result.error || 'Unknown error'));
-          return;
+        // On Linux, check for dependencies first
+        const platform = process.platform;
+        if (platform === 'linux') {
+          const depsResult = await ipcRenderer.invoke('rdp:checkDeps');
+          if (depsResult.success && depsResult.deps) {
+            if (!depsResult.deps.xfreerdp3 || !depsResult.deps.xdotool) {
+              // Show dependency installer
+              setPendingRDPServer(server);
+              setShowRDPDepsInstaller(true);
+              setConnectingServerId(null);
+              return;
+            }
+          }
         }
-
-        const rdpSession: Session = {
-          id: `rdp-${Date.now()}`,
-          server,
-          connectionId,
-          type: 'rdp',
-          theme: currentTheme,
-        };
-
-        setSessions([...sessions, rdpSession]);
-        setActiveSessionId(rdpSession.id);
-        setSidebarOpen(false);  // Auto-hide sidebar
-        setConnectingServerId(null);
-        console.log('[App] RDP Session created:', rdpSession.id);
+        
+        await connectToRDP(server);
         return;
       }
 
@@ -1858,6 +1892,26 @@ const App: React.FC = () => {
         setSidebarOpen(false);  // Auto-hide sidebar
         setConnectingServerId(null);
         console.log('[App] WSS Session created:', wssSession.id);
+        return;
+      }
+
+      // Handle database connections
+      if (['mysql', 'postgresql', 'mongodb', 'redis', 'sqlite'].includes(protocol)) {
+        const connectionId = `db-${server.id}-${Date.now()}`;
+        
+        const dbSession: Session = {
+          id: connectionId,
+          server,
+          connectionId,
+          type: 'database',
+          theme: currentTheme,
+        };
+
+        setSessions([...sessions, dbSession]);
+        setActiveSessionId(dbSession.id);
+        setSidebarOpen(false);  // Auto-hide sidebar
+        setConnectingServerId(null);
+        console.log('[App] Database Session created:', dbSession.id);
         return;
       }
 
@@ -2330,9 +2384,15 @@ const App: React.FC = () => {
               rdp: { color: '#3b82f6', bgColor: 'bg-blue-500/10' },
               ftp: { color: '#f59e0b', bgColor: 'bg-amber-500/10' },
               ftps: { color: '#f97316', bgColor: 'bg-orange-500/10' },
-              wss: { color: '#8b5cf6', bgColor: 'bg-violet-500/10' }
+              wss: { color: '#8b5cf6', bgColor: 'bg-violet-500/10' },
+              mysql: { color: '#00758f', bgColor: '' },
+              postgresql: { color: '#336791', bgColor: '' },
+              mongodb: { color: '#47a248', bgColor: '' },
+              redis: { color: '#dc382d', bgColor: '' },
+              sqlite: { color: '#003b57', bgColor: '' }
             };
             const config = protocolConfig[protocol as keyof typeof protocolConfig] || { color: '#6b7280', bgColor: 'bg-gray-500/10' };
+            const isDatabase = ['mysql', 'postgresql', 'mongodb', 'redis', 'sqlite'].includes(protocol);
             
             return (
               <div
@@ -2345,18 +2405,53 @@ const App: React.FC = () => {
                 }`}
               >
                 {/* Protocol icon matching ServerList */}
-                <div 
-                  className={`w-5 h-5 rounded ${config.bgColor} flex items-center justify-center flex-shrink-0`}
-                  style={{ color: config.color }}
-                >
-                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    {protocol === 'ssh' && <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />}
-                    {protocol === 'rdp' && <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />}
-                    {protocol === 'ftp' && <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />}
-                    {protocol === 'ftps' && <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />}
-                    {protocol === 'wss' && <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />}
-                  </svg>
-                </div>
+                {isDatabase ? (
+                  /* Database icons - no background wrapper */
+                  <div className="w-5 h-5 flex items-center justify-center flex-shrink-0">
+                    {protocol === 'mysql' && (
+                      <svg className="w-5 h-5" viewBox="0 0 48 48">
+                        <path fill="#00796b" d="M0.002,35.041h1.92v-7.085l2.667,6.057c0.329,0.755,0.779,1.022,1.662,1.022 s1.315-0.267,1.644-1.022l2.667-5.902v6.93h1.92v-7.906c0-0.61-0.277-0.917-0.807-1.054c-1.286-0.373-2.138,0.089-2.525,0.986 l-2.7,6.069l-2.613-6.069c-0.37-0.897-1.239-1.359-2.524-0.986c-0.531,0.137-0.808,0.444-0.808,1.054v7.906H0.002z"/>
+                        <path fill="#00796b" d="M13.441,29.281h1.92v4.055c-0.015,0.2,0.064,0.731,0.99,0.745c0.472,0.008,2.821,0,2.85,0v-4.8h1.92 c0,0,0,5.417,0,5.529c0,0.617-0.559,1.239-1.2,1.44c-0.263,0.085-3.479,0-3.479,0c-1.845,0-3.001-0.962-3.001-1.8V29.281z"/>
+                        <path fill="#f57f17" d="M21.722,34.063v2.718c0,0.267,0.053,0.457,0.16,0.57c0.054,0.057,0.16,0.125,0.294,0.181 c0.227,0.089,0.48,0.131,0.751,0.131h0.16v0.377h-4.451v-0.377h0.16c0.535,0,0.925-0.144,1.145-0.42 c0.107-0.125,0.16-0.342,0.16-0.627v-6.262c0-0.285-0.053-0.502-0.16-0.627c-0.22-0.269-0.609-0.413-1.145-0.413h-0.16v-0.377 h4.078v0.377h-0.16c-0.535,0-0.925,0.144-1.145,0.42c-0.107,0.125-0.16,0.342-0.16,0.62v3.411h4.238v-3.411 c0-0.285-0.053-0.502-0.16-0.627c-0.22-0.269-0.609-0.413-1.145-0.413h-0.16v-0.377h4.078v0.377h-0.16 c-0.535,0-0.925,0.144-1.145,0.42c-0.107,0.125-0.16,0.342-0.16,0.62v6.269c0,0.267,0.053,0.457,0.16,0.57 c0.054,0.057,0.16,0.125,0.294,0.181c0.227,0.089,0.48,0.131,0.751,0.131h0.16v0.377h-4.451v-0.377h0.16 c0.535,0,0.925-0.144,1.145-0.42c0.107-0.125,0.16-0.342,0.16-0.627v-2.553L21.722,34.063z"/>
+                        <path fill="#00796b" d="M24.124,10.651c-0.306-0.048-0.527-0.078-0.769-0.078 c-2.755,0-4.138,1.398-4.138,4.183v1.107h-1.721v1.453h1.721v7.291h1.873v-7.291h2.426v-1.453h-2.426v-1.003 c0-1.729,0.549-2.528,1.909-2.528c0.384,0,0.742,0.036,1.125,0.108V10.651L24.124,10.651z"/>
+                      </svg>
+                    )}
+                    {protocol === 'postgresql' && (
+                      <svg className="w-5 h-5" viewBox="0 0 24 24">
+                        <path fill="#336791" d="M17.128 0a10.134 10.134 0 0 0-2.755.403l-.063.02a10.922 10.922 0 0 0-1.612-.143c-1.209 0-2.291.256-3.193.737l-.077.044c-.268-.032-.56-.05-.877-.05-1.203 0-2.23.254-3.028.707-.986.558-1.678 1.433-1.734 2.602-.034.73.071 1.415.278 2.045.06.185.133.36.218.525-.082.367-.125.76-.125 1.175 0 .597.068 1.158.2 1.676.16.624.42 1.181.78 1.663.14.187.302.361.48.52-.003.018-.004.036-.006.055l-.003.024c-.003.02-.004.041-.005.062v.514l.025.096.018.057.021.054.024.053.028.05.031.049.034.047.037.044.04.042.043.04.046.036.048.034.051.031.053.028.056.024.057.021.06.018.061.014.063.011.065.007.066.003h.066l.065-.003.064-.007.063-.011.062-.015.06-.018.058-.021.056-.025.054-.028.051-.031.049-.034.046-.037.044-.04.04-.042.038-.044.034-.047.031-.049.028-.051.024-.054.021-.055.017-.058.014-.06.011-.062.007-.064.004-.066v-.066l-.003-.066-.007-.065-.01-.063-.014-.062-.018-.06-.021-.058-.025-.056-.028-.053-.031-.051-.034-.048-.037-.046-.04-.043-.043-.04-.046-.037-.049-.034-.051-.031-.054-.028-.056-.024-.058-.021-.06-.018-.062-.014-.063-.011-.065-.007-.066-.004h-.066l-.065.003-.064.007-.063.01-.062.015-.06.017-.058.021-.056.025-.054.027-.051.032-.049.034-.046.036-.044.04-.04.043-.038.045-.034.047-.031.049-.028.051-.024.054-.021.055-.018.058-.014.06-.011.062-.007.064-.004.066v.066c0 .022.001.044.003.066.003.022.007.043.01.065.005.021.01.042.015.062.006.02.012.04.018.06.007.02.014.039.021.057.008.019.016.037.025.055.009.018.018.035.028.052.01.017.02.034.031.05.011.016.023.031.034.046.013.015.025.03.038.044.013.014.026.028.04.041.014.013.028.025.043.037.014.012.029.024.044.035.015.011.03.022.046.032.016.01.032.02.048.029.017.009.033.018.05.026.017.008.034.015.052.022.017.007.035.013.053.02.018.006.036.011.054.016.019.005.037.009.056.013.019.004.037.007.056.01.019.003.038.005.057.007.019.002.038.003.058.004.019.001.039.001.058.001h.058l.058-.001c.02-.001.039-.002.058-.004.019-.002.038-.004.057-.007.019-.003.038-.006.056-.01.019-.004.037-.008.056-.013.018-.005.036-.01.054-.016.018-.006.036-.012.053-.019.018-.007.035-.014.052-.022.017-.008.033-.017.05-.026.016-.009.032-.019.048-.03.016-.01.031-.02.046-.032.015-.011.03-.023.044-.035.015-.012.029-.024.043-.037.014-.013.027-.027.04-.041.013-.014.025-.029.038-.044.012-.015.024-.03.035-.046.011-.016.021-.033.031-.05.01-.017.019-.034.028-.052.009-.018.017-.036.025-.055.007-.018.014-.037.021-.057.006-.02.012-.04.018-.06.005-.02.01-.041.014-.062.004-.022.008-.043.011-.065.002-.022.003-.044.003-.066z"/>
+                      </svg>
+                    )}
+                    {protocol === 'mongodb' && (
+                      <svg className="w-5 h-5" viewBox="0 0 24 24">
+                        <path fill="#47a248" d="M17.193 9.555c-1.264-5.58-4.252-7.414-4.573-8.115-.28-.394-.53-.954-.735-1.44-.036.495-.055.685-.523 1.184-.723.566-4.438 3.682-4.74 10.02-.282 5.912 4.27 9.435 4.888 9.884l.07.05A73.49 73.49 0 0111.91 24h.481c.114-1.032.284-2.056.51-3.07.417-.296.604-.463.85-.693a11.342 11.342 0 003.639-8.464c.01-.814-.103-1.662-.197-2.218zm-5.336 8.195s0-8.291.275-8.29c.213 0 .49 10.695.49 10.695-.381-.045-.765-1.76-.765-2.405z"/>
+                      </svg>
+                    )}
+                    {protocol === 'redis' && (
+                      <svg className="w-5 h-5" viewBox="0 0 24 24">
+                        <path fill="#dc382d" d="M10.5 2.661l-8.571 4.062c-.309.146-.309.422 0 .568l8.571 4.062c.346.163.727.163 1.073 0l8.571-4.062c.309-.146.309-.422 0-.568l-8.571-4.062c-.346-.163-.727-.163-1.073 0zM1.929 9.405l8.571 4.062c.346.163.727.163 1.073 0l8.571-4.062c.309-.146.309-.422 0-.568-.309-.146-.818-.146-1.127 0l-7.944 3.77c-.346.163-.727.163-1.073 0l-7.944-3.77c-.309-.146-.818-.146-1.127 0-.309.146-.309.422 0 .568zM1.929 13.405l8.571 4.062c.346.163.727.163 1.073 0l8.571-4.062c.309-.146.309-.422 0-.568-.309-.146-.818-.146-1.127 0l-7.944 3.77c-.346.163-.727.163-1.073 0l-7.944-3.77c-.309-.146-.818-.146-1.127 0-.309.146-.309.422 0 .568z"/>
+                      </svg>
+                    )}
+                    {protocol === 'sqlite' && (
+                      <svg className="w-5 h-5" viewBox="0 0 24 24">
+                        <path fill="#003b57" d="M21.678.521c-1.032-.92-2.28-.55-3.678.618A38.019 38.019 0 0 0 16.463 2.5c-1.586 1.683-3.726 4.32-5.141 6.486-.053.026-.095.044-.148.076-.714.42-1.46.868-2.19 1.345-.099-.152-.462-.209-.923-.146A7.91 7.91 0 0 1 6.9 10.4a1.553 1.553 0 0 1-.09.01 2.76 2.76 0 0 1-.142.007h-.074c-.16.003-.288.019-.358.047-.082.032-.13.076-.137.128-.01.072.04.17.139.282.015.018.037.039.055.058.033.035.071.073.11.113.041.042.085.088.13.135.022.024.045.05.068.075.14.157.294.34.454.549-.024.039-.047.078-.071.119a87.23 87.23 0 0 0-2.06 3.769C3.694 17.925 2.14 20.747.67 23.095c-.12.19-.029.356.114.455.037.026.08.046.127.061.053.017.11.028.168.034.082.007.168.002.248-.014.093-.02.181-.053.255-.1.108-.067.194-.16.244-.275a46.79 46.79 0 0 1 1.595-2.936c.115-.196.35-.472.65-.745.147-.133.31-.262.48-.379.142-.098.29-.186.437-.262.135-.069.284-.153.447-.25l.018-.011.018-.01c.155-.091.323-.194.504-.31.086-.054.175-.112.266-.172.02.114.075.299.166.557.055.154.12.33.195.53.185.496.408 1.108.578 1.795.174.699.294 1.467.267 2.257a.195.195 0 0 0 .029.11.166.166 0 0 0 .067.06c.021.01.044.017.068.019.031.003.065-.001.097-.011a.206.206 0 0 0 .07-.036.2.2 0 0 0 .052-.058.174.174 0 0 0 .023-.059c.206-.933.328-1.747.386-2.445a9.284 9.284 0 0 0-.095-2.143c.25-.156.498-.315.746-.477.088-.057.175-.115.262-.172.153.188.306.383.46.583.296.39.592.808.87 1.246.178.28.348.571.503.867.101.192.196.387.282.58.053.12.103.24.149.358.043.109.083.217.119.322.054.157.1.306.136.443.029.107.053.207.071.297.04.195.058.348.053.448a.194.194 0 0 0 .016.091c.012.03.032.054.058.072a.18.18 0 0 0 .164.014.228.228 0 0 0 .062-.037.24.24 0 0 0 .045-.046.195.195 0 0 0 .032-.055l.01-.024c.01-.029.024-.068.041-.117a4.37 4.37 0 0 0 .055-.16 6.817 6.817 0 0 0 .139-.518 8.38 8.38 0 0 0 .108-.561 9.61 9.61 0 0 0 .101-.87c.039-.52.042-1.14-.048-1.847a9.786 9.786 0 0 0-.22-1.12c.184-.142.369-.286.554-.43.064-.05.128-.1.192-.15.009.011.019.02.028.031.024.03.047.055.068.077z"/>
+                      </svg>
+                    )}
+                  </div>
+                ) : (
+                  /* Non-database icons - with background */
+                  <div 
+                    className={`w-5 h-5 rounded ${config.bgColor} flex items-center justify-center flex-shrink-0`}
+                    style={{ color: config.color }}
+                  >
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      {protocol === 'ssh' && <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />}
+                      {protocol === 'rdp' && <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />}
+                      {protocol === 'ftp' && <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />}
+                      {protocol === 'ftps' && <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />}
+                      {protocol === 'wss' && <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />}
+                    </svg>
+                  </div>
+                )}
                 <span className="font-medium max-w-[100px] truncate">{session.server.name}</span>
                 <button
                   onClick={(e) => {
@@ -2603,20 +2698,19 @@ const App: React.FC = () => {
                 <span className="text-sm font-medium">{t('twoFactorAuth') || '2FA'}</span>
               </button>
               
-              {/* Custom Hotkeys */}
+              {/* Command Snippets */}
               <button
-                onClick={() => { setActiveMenu('hotkeys'); setActiveSessionId(null); }}
+                onClick={() => { setActiveMenu('snippets'); setActiveSessionId(null); }}
                 className={`w-full px-3 py-2.5 rounded-lg flex items-center gap-3 mb-1 transition ${
-                  activeMenu === 'hotkeys' && !activeSessionId
+                  activeMenu === 'snippets' && !activeSessionId
                     ? 'bg-indigo-600 !text-white'
                     : appTheme === 'light' ? 'text-gray-600 hover:text-gray-900 hover:bg-gray-100' : 'text-gray-400 hover:text-white hover:bg-navy-700'
                 }`}
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12H9m6 4H9" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
                 </svg>
-                <span className="text-sm font-medium">{t('customHotkeys') || 'Hotkeys'}</span>
+                <span className="text-sm font-medium">{t('snippets') || 'Snippets'}</span>
               </button>
             </div>
           </div>
@@ -4076,9 +4170,9 @@ const App: React.FC = () => {
             <TwoFactorPage appTheme={appTheme} />
           )}
 
-          {/* Custom Hotkeys Page */}
-          {activeMenu === 'hotkeys' && !activeSessionId && (
-            <HotkeyPage appTheme={appTheme} />
+          {/* Command Snippets Page */}
+          {activeMenu === 'snippets' && !activeSessionId && (
+            <SnippetPage appTheme={appTheme} />
           )}
 
           {/* About Page */}
@@ -4340,6 +4434,13 @@ const App: React.FC = () => {
                   onClose={() => handleCloseSession(session.id)}
                   onError={(err) => alert('WSS Error: ' + err)}
                 />
+              ) : session.type === 'database' ? (
+                <DatabaseClient
+                  server={session.server as any}
+                  connectionId={session.connectionId}
+                  theme={appTheme}
+                  onClose={() => handleCloseSession(session.id)}
+                />
               ) : (
                 <DualPaneSFTP 
                   connectionId={session.connectionId} 
@@ -4354,8 +4455,8 @@ const App: React.FC = () => {
           ))}
         </div>
 
-        {/* Footer Bar - Only show for SSH sessions, hide for RDP, WSS, FTP, FTPS */}
-        {activeSession && activeSession.type !== 'rdp' && activeSession.type !== 'wss' && 
+        {/* Footer Bar - Only show for SSH sessions, hide for RDP, WSS, FTP, FTPS, Database */}
+        {activeSession && activeSession.type !== 'rdp' && activeSession.type !== 'wss' && activeSession.type !== 'database' &&
          activeSession.server.protocol !== 'ftp' && activeSession.server.protocol !== 'ftps' && (
           <div className="bg-navy-800 border-t border-navy-700 px-4 py-2 flex items-center justify-between min-w-0">
             {/* Left side - OS Info */}
@@ -4584,9 +4685,15 @@ const App: React.FC = () => {
                     rdp: { color: '#3b82f6', bgColor: 'bg-blue-500/10' },
                     ftp: { color: '#f59e0b', bgColor: 'bg-amber-500/10' },
                     ftps: { color: '#f97316', bgColor: 'bg-orange-500/10' },
-                    wss: { color: '#8b5cf6', bgColor: 'bg-violet-500/10' }
+                    wss: { color: '#8b5cf6', bgColor: 'bg-violet-500/10' },
+                    mysql: { color: '#00758f', bgColor: '' },
+                    postgresql: { color: '#336791', bgColor: '' },
+                    mongodb: { color: '#47a248', bgColor: '' },
+                    redis: { color: '#dc382d', bgColor: '' },
+                    sqlite: { color: '#003b57', bgColor: '' }
                   };
                   const config = protocolConfig[protocol as keyof typeof protocolConfig] || { color: '#6b7280', bgColor: 'bg-gray-500/10' };
+                  const isDatabaseProtocol = ['mysql', 'postgresql', 'mongodb', 'redis', 'sqlite'].includes(protocol);
                   
                   return (
                     <button
@@ -4599,18 +4706,43 @@ const App: React.FC = () => {
                       className="w-full px-4 py-3 flex items-center gap-3 hover:bg-navy-700 transition text-left border-b border-navy-700/50"
                     >
                       {/* Protocol icon matching ServerList style */}
-                      <div 
-                        className={`w-9 h-9 rounded-lg ${config.bgColor} flex items-center justify-center`}
-                        style={{ color: config.color }}
-                      >
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          {protocol === 'ssh' && <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />}
-                          {protocol === 'rdp' && <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />}
-                          {protocol === 'ftp' && <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />}
-                          {protocol === 'ftps' && <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />}
-                          {protocol === 'wss' && <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />}
-                        </svg>
-                      </div>
+                      {isDatabaseProtocol ? (
+                        <div className="w-9 h-9 flex items-center justify-center">
+                          {protocol === 'mysql' && (
+                            <svg className="w-8 h-8" viewBox="0 0 48 48">
+                              <path fill="#00796b" d="M0.002,35.041h1.92v-7.085l2.667,6.057c0.329,0.755,0.779,1.022,1.662,1.022 s1.315-0.267,1.644-1.022l2.667-5.902v6.93h1.92v-7.906c0-0.61-0.277-0.917-0.807-1.054c-1.286-0.373-2.138,0.089-2.525,0.986 l-2.7,6.069l-2.613-6.069c-0.37-0.897-1.239-1.359-2.524-0.986c-0.531,0.137-0.808,0.444-0.808,1.054v7.906H0.002z"/>
+                              <path fill="#00796b" d="M13.441,29.281h1.92v4.055c-0.015,0.2,0.064,0.731,0.99,0.745c0.472,0.008,2.821,0,2.85,0v-4.8h1.92 c0,0,0,5.417,0,5.529c0,0.617-0.559,1.239-1.2,1.44c-0.263,0.085-3.479,0-3.479,0c-1.845,0-3.001-0.962-3.001-1.8V29.281z"/>
+                              <path fill="#f57f17" d="M21.722,34.063v2.718c0,0.267,0.053,0.457,0.16,0.57c0.054,0.057,0.16,0.125,0.294,0.181 c0.227,0.089,0.48,0.131,0.751,0.131h0.16v0.377h-4.451v-0.377h0.16c0.535,0,0.925-0.144,1.145-0.42 c0.107-0.125,0.16-0.342,0.16-0.627v-6.262c0-0.285-0.053-0.502-0.16-0.627c-0.22-0.269-0.609-0.413-1.145-0.413h-0.16v-0.377 h4.078v0.377h-0.16c-0.535,0-0.925,0.144-1.145,0.42c-0.107,0.125-0.16,0.342-0.16,0.62v3.411h4.238v-3.411 c0-0.285-0.053-0.502-0.16-0.627c-0.22-0.269-0.609-0.413-1.145-0.413h-0.16v-0.377h4.078v0.377h-0.16 c-0.535,0-0.925,0.144-1.145,0.42c-0.107,0.125-0.16,0.342-0.16,0.62v6.269c0,0.267,0.053,0.457,0.16,0.57 c0.054,0.057,0.16,0.125,0.294,0.181c0.227,0.089,0.48,0.131,0.751,0.131h0.16v0.377h-4.451v-0.377h0.16 c0.535,0,0.925-0.144,1.145-0.42c0.107-0.125,0.16-0.342,0.16-0.627v-2.553L21.722,34.063z"/>
+                              <path fill="#00796b" d="M24.124,10.651c-0.306-0.048-0.527-0.078-0.769-0.078 c-2.755,0-4.138,1.398-4.138,4.183v1.107h-1.721v1.453h1.721v7.291h1.873v-7.291h2.426v-1.453h-2.426v-1.003 c0-1.729,0.549-2.528,1.909-2.528c0.384,0,0.742,0.036,1.125,0.108V10.651L24.124,10.651z"/>
+                            </svg>
+                          )}
+                          {protocol === 'postgresql' && (
+                            <svg className="w-7 h-7" viewBox="0 0 24 24"><path fill="#336791" d="M17.128 0a10.134 10.134 0 0 0-2.755.403l-.063.02a10.922 10.922 0 0 0-1.612-.143c-1.209 0-2.291.256-3.193.737l-.077.044c-.268-.032-.56-.05-.877-.05-1.203 0-2.23.254-3.028.707-.986.558-1.678 1.433-1.734 2.602-.034.73.071 1.415.278 2.045.06.185.133.36.218.525-.082.367-.125.76-.125 1.175 0 .597.068 1.158.2 1.676.16.624.42 1.181.78 1.663.14.187.302.361.48.52-.003.018-.004.036-.006.055l-.003.024c-.003.02-.004.041-.005.062v.514l.025.096.018.057.021.054.024.053.028.05.031.049.034.047.037.044.04.042.043.04.046.036.048.034.051.031.053.028.056.024.057.021.06.018.061.014.063.011.065.007.066.003h.066l.065-.003.064-.007.063-.011.062-.015.06-.018.058-.021.056-.025.054-.028.051-.031.049-.034.046-.037.044-.04.04-.042.038-.044.034-.047.031-.049.028-.051.024-.054.021-.055.017-.058.014-.06.011-.062.007-.064.004-.066v-.066l-.003-.066-.007-.065-.01-.063-.014-.062-.018-.06-.021-.058-.025-.056-.028-.053-.031-.051-.034-.048-.037-.046-.04-.043-.043-.04-.046-.037-.049-.034-.051-.031-.054-.028-.056-.024-.058-.021-.06-.018-.062-.014-.063-.011-.065-.007-.066-.004h-.066l-.065.003-.064.007-.063.01-.062.015-.06.017-.058.021-.056.025-.054.027-.051.032-.049.034-.046.036-.044.04-.04.043-.038.045-.034.047-.031.049-.028.051-.024.054-.021.055-.018.058-.014.06-.011.062-.007.064-.004.066v.066c0 .022.001.044.003.066.003.022.007.043.01.065.005.021.01.042.015.062.006.02.012.04.018.06.007.02.014.039.021.057.008.019.016.037.025.055.009.018.018.035.028.052.01.017.02.034.031.05.011.016.023.031.034.046.013.015.025.03.038.044.013.014.026.028.04.041.014.013.028.025.043.037.014.012.029.024.044.035.015.011.03.022.046.032.016.01.032.02.048.029.017.009.033.018.05.026.017.008.034.015.052.022.017.007.035.013.053.02.018.006.036.011.054.016.019.005.037.009.056.013.019.004.037.007.056.01.019.003.038.005.057.007.019.002.038.003.058.004.019.001.039.001.058.001h.058l.058-.001c.02-.001.039-.002.058-.004.019-.002.038-.004.057-.007.019-.003.038-.006.056-.01.019-.004.037-.008.056-.013.018-.005.036-.01.054-.016.018-.006.036-.012.053-.019.018-.007.035-.014.052-.022.017-.008.033-.017.05-.026.016-.009.032-.019.048-.03.016-.01.031-.02.046-.032.015-.011.03-.023.044-.035.015-.012.029-.024.043-.037.014-.013.027-.027.04-.041.013-.014.025-.029.038-.044.012-.015.024-.03.035-.046.011-.016.021-.033.031-.05.01-.017.019-.034.028-.052.009-.018.017-.036.025-.055.007-.018.014-.037.021-.057.006-.02.012-.04.018-.06.005-.02.01-.041.014-.062.004-.022.008-.043.011-.065.002-.022.003-.044.003-.066z"/></svg>
+                          )}
+                          {protocol === 'mongodb' && (
+                            <svg className="w-7 h-7" viewBox="0 0 24 24"><path fill="#47a248" d="M17.193 9.555c-1.264-5.58-4.252-7.414-4.573-8.115-.28-.394-.53-.954-.735-1.44-.036.495-.055.685-.523 1.184-.723.566-4.438 3.682-4.74 10.02-.282 5.912 4.27 9.435 4.888 9.884l.07.05A73.49 73.49 0 0111.91 24h.481c.114-1.032.284-2.056.51-3.07.417-.296.604-.463.85-.693a11.342 11.342 0 003.639-8.464c.01-.814-.103-1.662-.197-2.218zm-5.336 8.195s0-8.291.275-8.29c.213 0 .49 10.695.49 10.695-.381-.045-.765-1.76-.765-2.405z"/></svg>
+                          )}
+                          {protocol === 'redis' && (
+                            <svg className="w-7 h-7" viewBox="0 0 24 24"><path fill="#dc382d" d="M10.5 2.661l-8.571 4.062c-.309.146-.309.422 0 .568l8.571 4.062c.346.163.727.163 1.073 0l8.571-4.062c.309-.146.309-.422 0-.568l-8.571-4.062c-.346-.163-.727-.163-1.073 0zM1.929 9.405l8.571 4.062c.346.163.727.163 1.073 0l8.571-4.062c.309-.146.309-.422 0-.568-.309-.146-.818-.146-1.127 0l-7.944 3.77c-.346.163-.727.163-1.073 0l-7.944-3.77c-.309-.146-.818-.146-1.127 0-.309.146-.309.422 0 .568zM1.929 13.405l8.571 4.062c.346.163.727.163 1.073 0l8.571-4.062c.309-.146.309-.422 0-.568-.309-.146-.818-.146-1.127 0l-7.944 3.77c-.346.163-.727.163-1.073 0l-7.944-3.77c-.309-.146-.818-.146-1.127 0-.309.146-.309.422 0 .568z"/></svg>
+                          )}
+                          {protocol === 'sqlite' && (
+                            <svg className="w-7 h-7" viewBox="0 0 24 24"><path fill="#003b57" d="M21.678.521c-1.032-.92-2.28-.55-3.678.618A38.019 38.019 0 0 0 16.463 2.5c-1.586 1.683-3.726 4.32-5.141 6.486-.053.026-.095.044-.148.076-.714.42-1.46.868-2.19 1.345-.099-.152-.462-.209-.923-.146A7.91 7.91 0 0 1 6.9 10.4a1.553 1.553 0 0 1-.09.01 2.76 2.76 0 0 1-.142.007h-.074c-.16.003-.288.019-.358.047-.082.032-.13.076-.137.128-.01.072.04.17.139.282.015.018.037.039.055.058.033.035.071.073.11.113.041.042.085.088.13.135.022.024.045.05.068.075.14.157.294.34.454.549-.024.039-.047.078-.071.119a87.23 87.23 0 0 0-2.06 3.769C3.694 17.925 2.14 20.747.67 23.095c-.12.19-.029.356.114.455.037.026.08.046.127.061.053.017.11.028.168.034.082.007.168.002.248-.014.093-.02.181-.053.255-.1.108-.067.194-.16.244-.275a46.79 46.79 0 0 1 1.595-2.936c.115-.196.35-.472.65-.745.147-.133.31-.262.48-.379.142-.098.29-.186.437-.262.135-.069.284-.153.447-.25l.018-.011.018-.01c.155-.091.323-.194.504-.31.086-.054.175-.112.266-.172.02.114.075.299.166.557.055.154.12.33.195.53.185.496.408 1.108.578 1.795.174.699.294 1.467.267 2.257a.195.195 0 0 0 .029.11.166.166 0 0 0 .067.06c.021.01.044.017.068.019.031.003.065-.001.097-.011a.206.206 0 0 0 .07-.036.2.2 0 0 0 .052-.058.174.174 0 0 0 .023-.059c.206-.933.328-1.747.386-2.445a9.284 9.284 0 0 0-.095-2.143c.25-.156.498-.315.746-.477.088-.057.175-.115.262-.172.153.188.306.383.46.583.296.39.592.808.87 1.246.178.28.348.571.503.867.101.192.196.387.282.58.053.12.103.24.149.358.043.109.083.217.119.322.054.157.1.306.136.443.029.107.053.207.071.297.04.195.058.348.053.448a.194.194 0 0 0 .016.091c.012.03.032.054.058.072a.18.18 0 0 0 .164.014.228.228 0 0 0 .062-.037.24.24 0 0 0 .045-.046.195.195 0 0 0 .032-.055l.01-.024c.01-.029.024-.068.041-.117a4.37 4.37 0 0 0 .055-.16 6.817 6.817 0 0 0 .139-.518 8.38 8.38 0 0 0 .108-.561 9.61 9.61 0 0 0 .101-.87c.039-.52.042-1.14-.048-1.847a9.786 9.786 0 0 0-.22-1.12c.184-.142.369-.286.554-.43.064-.05.128-.1.192-.15.009.011.019.02.028.031.024.03.047.055.068.077z"/></svg>
+                          )}
+                        </div>
+                      ) : (
+                        <div 
+                          className={`w-9 h-9 rounded-lg ${config.bgColor} flex items-center justify-center`}
+                          style={{ color: config.color }}
+                        >
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            {protocol === 'ssh' && <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />}
+                            {protocol === 'rdp' && <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />}
+                            {protocol === 'ftp' && <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />}
+                            {protocol === 'ftps' && <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />}
+                            {protocol === 'wss' && <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />}
+                          </svg>
+                        </div>
+                      )}
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
                           <span className="text-sm font-medium text-white truncate">{server.name || server.host}</span>
@@ -4945,6 +5077,25 @@ const App: React.FC = () => {
           onBoxBackup={handleBoxBackup}
           onBoxRestore={handleBoxRestore}
           t={t}
+        />
+      )}
+
+      {/* RDP Dependencies Installer (Linux only) */}
+      {showRDPDepsInstaller && (
+        <RDPDepsInstaller
+          isOpen={showRDPDepsInstaller}
+          onClose={() => {
+            setShowRDPDepsInstaller(false);
+            setPendingRDPServer(null);
+          }}
+          onInstallComplete={() => {
+            setShowRDPDepsInstaller(false);
+            if (pendingRDPServer) {
+              connectToRDP(pendingRDPServer);
+              setPendingRDPServer(null);
+            }
+          }}
+          theme={appTheme}
         />
       )}
 

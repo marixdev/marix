@@ -61,6 +61,7 @@ const PortKnockService_1 = require("./services/PortKnockService");
 const LANSharingService_1 = require("./services/LANSharingService");
 const LANFileTransferService_1 = require("./services/LANFileTransferService");
 const GoogleDriveService_1 = require("./services/GoogleDriveService");
+const databaseService_1 = require("./databaseService");
 let mainWindow = null;
 let tray = null;
 const nativeSSH = new NativeSSHManager_1.NativeSSHManager(); // For terminal (with MOTD)
@@ -243,6 +244,8 @@ electron_1.app.whenReady().then(() => {
     createWindow();
     createTray();
     createAppMenu();
+    // Initialize database handlers
+    (0, databaseService_1.initDatabaseHandlers)();
     // Start LAN sharing service on app startup for always-on discovery
     lanSharingService.start().then(() => {
         console.log('[App] LAN sharing service started on app ready');
@@ -905,6 +908,38 @@ electron_1.ipcMain.handle('ftp:writeFile', async (event, connectionId, remotePat
     }
 });
 // RDP (Windows Remote Desktop) handlers
+// Check RDP dependencies (Linux only)
+electron_1.ipcMain.handle('rdp:checkDeps', async () => {
+    try {
+        const deps = rdpManager.checkDependencies();
+        return { success: true, deps };
+    }
+    catch (error) {
+        return { success: false, error: error.message };
+    }
+});
+// Install RDP dependencies with streaming output
+electron_1.ipcMain.handle('rdp:installDeps', async (event) => {
+    try {
+        const deps = rdpManager.checkDependencies();
+        if (deps.xfreerdp3 && deps.xdotool) {
+            return { success: true, message: 'All dependencies already installed' };
+        }
+        return new Promise((resolve) => {
+            rdpManager.installDependencies(deps, (data) => {
+                // Stream data to renderer
+                if (event.sender && !event.sender.isDestroyed()) {
+                    event.sender.send('rdp:installOutput', data);
+                }
+            }, (success) => {
+                resolve({ success });
+            });
+        });
+    }
+    catch (error) {
+        return { success: false, error: error.message };
+    }
+});
 electron_1.ipcMain.handle('rdp:connect', async (event, connectionId, config) => {
     try {
         const { emitter, success, error } = rdpManager.connect(connectionId, {

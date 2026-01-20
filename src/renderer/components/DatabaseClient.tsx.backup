@@ -1,0 +1,2473 @@
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { ipcRenderer } from 'electron';
+import { useLanguage } from '../contexts/LanguageContext';
+import SQLEditor from './SQLEditor';
+import ERDDiagram from './ERDDiagram';
+
+interface DatabaseClientProps {
+  server: {
+    id: string;
+    name: string;
+    host: string;
+    port: number;
+    username: string;
+    password?: string;
+    protocol: 'mysql' | 'postgresql' | 'mongodb' | 'redis' | 'sqlite';
+    database?: string;
+    sslEnabled?: boolean;
+    mongoUri?: string;
+    sqliteFile?: string;
+  };
+  connectionId: string;
+  theme?: 'dark' | 'light';
+  onClose?: () => void;
+}
+
+interface TableInfo {
+  name: string;
+  type: 'table' | 'view' | 'collection';
+  columns?: ColumnInfo[];
+}
+
+interface ColumnInfo {
+  name: string;
+  type: string;
+  nullable: boolean;
+  key?: string;
+  default?: string | null;
+  extra?: string;
+}
+
+interface QueryResult {
+  columns: string[];
+  rows: any[];
+  affectedRows?: number;
+  insertId?: number;
+  executionTime: number;
+  error?: string;
+}
+
+const DatabaseClient: React.FC<DatabaseClientProps> = ({ server, connectionId, theme = 'dark', onClose }) => {
+  const { t } = useLanguage();
+  const [connected, setConnected] = useState(false);
+  const [connecting, setConnecting] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  
+  // Database browser state
+  const [databases, setDatabases] = useState<string[]>([]);
+  const [selectedDatabase, setSelectedDatabase] = useState<string>(server.database || '');
+  const [tables, setTables] = useState<TableInfo[]>([]);
+  const [selectedTable, setSelectedTable] = useState<string | null>(null);
+  const [tableData, setTableData] = useState<QueryResult | null>(null);
+  const [loadingTables, setLoadingTables] = useState(false);
+  const [loadingData, setLoadingData] = useState(false);
+  
+  // Query editor state
+  const [query, setQuery] = useState('');
+  const [queryResult, setQueryResult] = useState<QueryResult | null>(null);
+  const [executing, setExecuting] = useState(false);
+  const [queryHistory, setQueryHistory] = useState<string[]>([]);
+  const [showHistory, setShowHistory] = useState(false);
+  
+  // Context menu state
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; rowIdx: number; row: any } | null>(null);
+  
+  // Quick filter state
+  const [filters, setFilters] = useState<Array<{ column: string; operator: string; value: string }>>([]);
+  const [showFilters, setShowFilters] = useState(false);
+  
+  // UI state
+  const [activeTab, setActiveTab] = useState<'browser' | 'query' | 'structure' | 'erd' | 'import-export'>('browser');
+  const [sidebarWidth, setSidebarWidth] = useState(250);
+  const [isResizing, setIsResizing] = useState(false);
+  
+  // Table structure state
+  const [tableStructure, setTableStructure] = useState<ColumnInfo[]>([]);
+  const [loadingStructure, setLoadingStructure] = useState(false);
+  
+  // ERD state
+  const [erdTables, setErdTables] = useState<Array<{ name: string; columns: ColumnInfo[]; x: number; y: number }>>([]);
+  const [erdRelationships, setErdRelationships] = useState<Array<{ fromTable: string; fromColumn: string; toTable: string; toColumn: string; type: 'one-to-one' | 'one-to-many' | 'many-to-many' }>>([]);
+  const [loadingErd, setLoadingErd] = useState(false);
+  
+  // Import/Export state
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importDropTables, setImportDropTables] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [importProgress, setImportProgress] = useState<{ current: number; total: number; message: string } | null>(null);
+  const [importLog, setImportLog] = useState<Array<{ type: 'success' | 'error' | 'info'; message: string }>>([]);
+  const [exporting, setExporting] = useState(false);
+  const [exportOptions, setExportOptions] = useState({
+    includeStructure: true,
+    includeData: true,
+    includeDropTable: true,
+    selectedTables: [] as string[],
+  });
+  
+  // Editing state - Modal based
+  const [editModalOpen, setEditModalOpen] = useState(false);
+  const [editingRowIdx, setEditingRowIdx] = useState<number | null>(null);
+  const [editRowData, setEditRowData] = useState<Record<string, any>>({});
+  const [primaryKeyColumn, setPrimaryKeyColumn] = useState<string | null>(null);
+  const [savingRow, setSavingRow] = useState(false);
+  
+  // Protocol-specific icons and colors
+  const getProtocolInfo = () => {
+    switch (server.protocol) {
+      case 'mysql':
+        return { icon: '🐬', color: '#00758f', name: 'MySQL', tableIcon: '📋' };
+      case 'postgresql':
+        return { icon: '🐘', color: '#336791', name: 'PostgreSQL', tableIcon: '📋' };
+      case 'mongodb':
+        return { icon: '🍃', color: '#47a248', name: 'MongoDB', tableIcon: '📁' };
+      case 'redis':
+        return { icon: '🔑', color: '#dc382d', name: 'Redis', tableIcon: '📝' };
+      case 'sqlite':
+        return { icon: '💾', color: '#003b57', name: 'SQLite', tableIcon: '📋' };
+      default:
+        return { icon: '🗄️', color: '#666', name: 'Database', tableIcon: '📋' };
+    }
+  };
+  
+  const protocolInfo = getProtocolInfo();
+  
+  // Connect to database
+  useEffect(() => {
+    const connect = async () => {
+      setConnecting(true);
+      setError(null);
+      
+      try {
+        const result = await ipcRenderer.invoke('db:connect', {
+          connectionId,
+          protocol: server.protocol,
+          host: server.host,
+          port: server.port,
+          username: server.username,
+          password: server.password,
+          database: server.database,
+          sslEnabled: server.sslEnabled,
+          mongoUri: server.mongoUri,
+          sqliteFile: server.sqliteFile,
+        });
+        
+        if (result.success) {
+          setConnected(true);
+          if (result.databases) {
+            setDatabases(result.databases);
+          }
+          if (server.database) {
+            setSelectedDatabase(server.database);
+            loadTables(server.database);
+          }
+        } else {
+          setError(result.error || 'Connection failed');
+        }
+      } catch (err: any) {
+        setError(err.message || 'Connection failed');
+      } finally {
+        setConnecting(false);
+      }
+    };
+    
+    connect();
+    
+    return () => {
+      // Disconnect when component unmounts
+      ipcRenderer.invoke('db:disconnect', { connectionId });
+    };
+  }, [connectionId]);
+  
+  // Load tables for selected database
+  const loadTables = async (dbName: string) => {
+    setLoadingTables(true);
+    try {
+      const result = await ipcRenderer.invoke('db:getTables', {
+        connectionId,
+        database: dbName,
+      });
+      
+      if (result.success) {
+        setTables(result.tables || []);
+      } else {
+        setError(result.error);
+      }
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setLoadingTables(false);
+    }
+  };
+  
+  // Load table data
+  const loadTableData = async (tableName: string, limit = 100) => {
+    setLoadingData(true);
+    setSelectedTable(tableName);
+    
+    try {
+      // Load data and structure in parallel
+      const [dataResult, structureResult] = await Promise.all([
+        ipcRenderer.invoke('db:query', {
+          connectionId,
+          database: selectedDatabase,
+          query: server.protocol === 'mongodb' 
+            ? JSON.stringify({ collection: tableName, limit })
+            : `SELECT * FROM \`${tableName}\` LIMIT ${limit}`,
+        }),
+        ipcRenderer.invoke('db:getTableStructure', {
+          connectionId,
+          database: selectedDatabase,
+          table: tableName,
+        }),
+      ]);
+      
+      if (dataResult.success) {
+        setTableData(dataResult);
+      } else {
+        setError(dataResult.error);
+      }
+      
+      if (structureResult.success && structureResult.columns) {
+        setTableStructure(structureResult.columns);
+        // Find primary key column
+        const pk = structureResult.columns.find((c: ColumnInfo) => c.key === 'PRI');
+        setPrimaryKeyColumn(pk?.name || null);
+      }
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setLoadingData(false);
+    }
+  };
+  
+  // Apply filters to table data
+  const applyFilters = async () => {
+    if (!selectedTable || filters.length === 0) return;
+    
+    setLoadingData(true);
+    
+    try {
+      // Build WHERE clause from filters
+      const whereClauses = filters
+        .filter(f => f.column && (f.operator === 'IS NULL' || f.operator === 'IS NOT NULL' || f.value))
+        .map(f => {
+          if (f.operator === 'IS NULL') {
+            return `\`${f.column}\` IS NULL`;
+          } else if (f.operator === 'IS NOT NULL') {
+            return `\`${f.column}\` IS NOT NULL`;
+          } else if (f.operator === 'LIKE' || f.operator === 'NOT LIKE') {
+            return `\`${f.column}\` ${f.operator} '%${f.value}%'`;
+          } else {
+            // Check if value is numeric
+            const isNumeric = !isNaN(Number(f.value));
+            const val = isNumeric ? f.value : `'${f.value.replace(/'/g, "''")}'`;
+            return `\`${f.column}\` ${f.operator} ${val}`;
+          }
+        });
+      
+      if (whereClauses.length === 0) {
+        loadTableData(selectedTable);
+        return;
+      }
+      
+      const filteredQuery = `SELECT * FROM \`${selectedTable}\` WHERE ${whereClauses.join(' AND ')} LIMIT 100`;
+      
+      const result = await ipcRenderer.invoke('db:query', {
+        connectionId,
+        database: selectedDatabase,
+        query: filteredQuery,
+      });
+      
+      if (result.success) {
+        setTableData(result);
+      } else {
+        setError(result.error);
+      }
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setLoadingData(false);
+    }
+  };
+  
+  // Load table structure only
+  const loadTableStructure = async (tableName: string) => {
+    setLoadingStructure(true);
+    try {
+      const result = await ipcRenderer.invoke('db:getTableStructure', {
+        connectionId,
+        database: selectedDatabase,
+        table: tableName,
+      });
+      
+      if (result.success && result.columns) {
+        setTableStructure(result.columns);
+        const pk = result.columns.find((c: ColumnInfo) => c.key === 'PRI');
+        setPrimaryKeyColumn(pk?.name || null);
+      }
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setLoadingStructure(false);
+    }
+  };
+  
+  // Load ERD data - all tables with their structures and relationships
+  const loadERDData = async () => {
+    if (!selectedDatabase || tables.length === 0) return;
+    
+    setLoadingErd(true);
+    try {
+      const erdTablesData: Array<{ name: string; columns: ColumnInfo[]; x: number; y: number }> = [];
+      const relationships: Array<{ fromTable: string; fromColumn: string; toTable: string; toColumn: string; type: 'one-to-one' | 'one-to-many' | 'many-to-many' }> = [];
+      
+      // Load structure for each table
+      const cols = Math.ceil(Math.sqrt(tables.length));
+      
+      for (let i = 0; i < tables.length; i++) {
+        const table = tables[i];
+        try {
+          const result = await ipcRenderer.invoke('db:getTableStructure', {
+            connectionId,
+            database: selectedDatabase,
+            table: table.name,
+          });
+          
+          if (result.success && result.columns) {
+            const row = Math.floor(i / cols);
+            const col = i % cols;
+            erdTablesData.push({
+              name: table.name,
+              columns: result.columns,
+              x: col * 300 + 50,
+              y: row * 350 + 50,
+            });
+            
+            // Find foreign keys for relationships
+            result.columns.forEach((column: ColumnInfo) => {
+              if (column.key === 'MUL' || column.key === 'FK') {
+                // Try to infer relationship from column name (e.g., user_id -> users)
+                const match = column.name.match(/^(.+)_id$/);
+                if (match) {
+                  const possibleTable = match[1] + 's';
+                  const targetTable = tables.find(t => 
+                    t.name.toLowerCase() === possibleTable.toLowerCase() ||
+                    t.name.toLowerCase() === match[1].toLowerCase()
+                  );
+                  if (targetTable) {
+                    relationships.push({
+                      fromTable: table.name,
+                      fromColumn: column.name,
+                      toTable: targetTable.name,
+                      toColumn: 'id',
+                      type: 'one-to-many',
+                    });
+                  }
+                }
+              }
+            });
+          }
+        } catch (err) {
+          console.error(`Failed to load structure for table ${table.name}:`, err);
+        }
+      }
+      
+      setErdTables(erdTablesData);
+      setErdRelationships(relationships);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setLoadingErd(false);
+    }
+  };
+  
+  // Get file extension based on protocol
+  const getExportFileExtension = () => {
+    switch (server.protocol) {
+      case 'mysql':
+      case 'postgresql':
+      case 'sqlite':
+        return '.sql';
+      case 'mongodb':
+        return '.json';
+      case 'redis':
+        return '.redis';
+      default:
+        return '.sql';
+    }
+  };
+  
+  // Get accepted file types for import
+  const getAcceptedFileTypes = () => {
+    switch (server.protocol) {
+      case 'mysql':
+      case 'postgresql':
+      case 'sqlite':
+        return '.sql,.txt';
+      case 'mongodb':
+        return '.json,.bson';
+      case 'redis':
+        return '.redis,.txt,.rdb';
+      default:
+        return '.sql,.json,.txt';
+    }
+  };
+  
+  // Export database - supports all protocols
+  const exportDatabase = async () => {
+    if (!selectedDatabase && server.protocol !== 'sqlite' && server.protocol !== 'redis') {
+      setError('Please select a database first');
+      return;
+    }
+    
+    setExporting(true);
+    try {
+      const tablesToExport = exportOptions.selectedTables.length > 0 
+        ? exportOptions.selectedTables 
+        : tables.map(t => t.name);
+      
+      let exportContent = '';
+      let fileName = '';
+      let mimeType = 'text/plain';
+      
+      switch (server.protocol) {
+        case 'mysql': {
+          exportContent = `-- MySQL Database Export: ${selectedDatabase}\n`;
+          exportContent += `-- Server: ${server.host}:${server.port}\n`;
+          exportContent += `-- Generated: ${new Date().toISOString()}\n`;
+          exportContent += `-- Marix SSH Client\n\n`;
+          exportContent += `SET NAMES utf8mb4;\nSET FOREIGN_KEY_CHECKS=0;\n\n`;
+          
+          for (const tableName of tablesToExport) {
+            if (exportOptions.includeDropTable) {
+              exportContent += `DROP TABLE IF EXISTS \`${tableName}\`;\n`;
+            }
+            
+            if (exportOptions.includeStructure) {
+              const structResult = await ipcRenderer.invoke('db:query', {
+                connectionId,
+                database: selectedDatabase,
+                query: `SHOW CREATE TABLE \`${tableName}\``,
+              });
+              
+              if (structResult.success && structResult.rows.length > 0) {
+                const createTable = structResult.rows[0]['Create Table'] || structResult.rows[0]['CREATE TABLE'];
+                if (createTable) {
+                  exportContent += `\n${createTable};\n\n`;
+                }
+              }
+            }
+            
+            if (exportOptions.includeData) {
+              const dataResult = await ipcRenderer.invoke('db:query', {
+                connectionId,
+                database: selectedDatabase,
+                query: `SELECT * FROM \`${tableName}\``,
+              });
+              
+              if (dataResult.success && dataResult.rows.length > 0) {
+                exportContent += `-- Data for table \`${tableName}\`\n`;
+                const columns = dataResult.columns.map((c: string) => `\`${c}\``).join(', ');
+                
+                for (const row of dataResult.rows) {
+                  const values = dataResult.columns.map((col: string) => {
+                    const val = row[col];
+                    if (val === null) return 'NULL';
+                    if (typeof val === 'number') return val;
+                    if (typeof val === 'boolean') return val ? 1 : 0;
+                    return `'${String(val).replace(/'/g, "''").replace(/\\/g, '\\\\').replace(/\n/g, '\\n')}'`;
+                  }).join(', ');
+                  
+                  exportContent += `INSERT INTO \`${tableName}\` (${columns}) VALUES (${values});\n`;
+                }
+                exportContent += '\n';
+              }
+            }
+          }
+          
+          exportContent += `SET FOREIGN_KEY_CHECKS=1;\n`;
+          fileName = `${selectedDatabase}_mysql_${new Date().toISOString().slice(0, 10)}.sql`;
+          mimeType = 'text/sql';
+          break;
+        }
+        
+        case 'postgresql': {
+          exportContent = `-- PostgreSQL Database Export: ${selectedDatabase}\n`;
+          exportContent += `-- Server: ${server.host}:${server.port}\n`;
+          exportContent += `-- Generated: ${new Date().toISOString()}\n`;
+          exportContent += `-- Marix SSH Client\n\n`;
+          exportContent += `SET client_encoding = 'UTF8';\n\n`;
+          
+          for (const tableName of tablesToExport) {
+            if (exportOptions.includeDropTable) {
+              exportContent += `DROP TABLE IF EXISTS "${tableName}" CASCADE;\n`;
+            }
+            
+            if (exportOptions.includeStructure) {
+              // Get column info for PostgreSQL
+              const structResult = await ipcRenderer.invoke('db:query', {
+                connectionId,
+                database: selectedDatabase,
+                query: `SELECT column_name, data_type, is_nullable, column_default 
+                        FROM information_schema.columns 
+                        WHERE table_name = '${tableName}' AND table_schema = 'public'
+                        ORDER BY ordinal_position`,
+              });
+              
+              if (structResult.success && structResult.rows.length > 0) {
+                exportContent += `\nCREATE TABLE "${tableName}" (\n`;
+                const columnDefs = structResult.rows.map((col: any) => {
+                  let def = `  "${col.column_name}" ${col.data_type}`;
+                  if (col.is_nullable === 'NO') def += ' NOT NULL';
+                  if (col.column_default) def += ` DEFAULT ${col.column_default}`;
+                  return def;
+                });
+                exportContent += columnDefs.join(',\n');
+                exportContent += `\n);\n\n`;
+              }
+            }
+            
+            if (exportOptions.includeData) {
+              const dataResult = await ipcRenderer.invoke('db:query', {
+                connectionId,
+                database: selectedDatabase,
+                query: `SELECT * FROM "${tableName}"`,
+              });
+              
+              if (dataResult.success && dataResult.rows.length > 0) {
+                exportContent += `-- Data for table "${tableName}"\n`;
+                const columns = dataResult.columns.map((c: string) => `"${c}"`).join(', ');
+                
+                for (const row of dataResult.rows) {
+                  const values = dataResult.columns.map((col: string) => {
+                    const val = row[col];
+                    if (val === null) return 'NULL';
+                    if (typeof val === 'number') return val;
+                    if (typeof val === 'boolean') return val ? 'TRUE' : 'FALSE';
+                    return `'${String(val).replace(/'/g, "''")}'`;
+                  }).join(', ');
+                  
+                  exportContent += `INSERT INTO "${tableName}" (${columns}) VALUES (${values});\n`;
+                }
+                exportContent += '\n';
+              }
+            }
+          }
+          
+          fileName = `${selectedDatabase}_postgresql_${new Date().toISOString().slice(0, 10)}.sql`;
+          mimeType = 'text/sql';
+          break;
+        }
+        
+        case 'mongodb': {
+          const exportData: Record<string, any[]> = {};
+          exportData._metadata = [{
+            database: selectedDatabase,
+            server: `${server.host}:${server.port}`,
+            generated: new Date().toISOString(),
+            generator: 'Marix SSH Client',
+            collections: tablesToExport,
+          }];
+          
+          for (const collectionName of tablesToExport) {
+            const dataResult = await ipcRenderer.invoke('db:query', {
+              connectionId,
+              database: selectedDatabase,
+              query: JSON.stringify({ collection: collectionName, limit: 0 }), // 0 = no limit
+            });
+            
+            if (dataResult.success) {
+              exportData[collectionName] = dataResult.rows;
+            }
+          }
+          
+          exportContent = JSON.stringify(exportData, null, 2);
+          fileName = `${selectedDatabase}_mongodb_${new Date().toISOString().slice(0, 10)}.json`;
+          mimeType = 'application/json';
+          break;
+        }
+        
+        case 'redis': {
+          const exportData: Record<string, any> = {
+            _metadata: {
+              server: `${server.host}:${server.port}`,
+              generated: new Date().toISOString(),
+              generator: 'Marix SSH Client',
+            },
+            keys: {} as Record<string, any>,
+          };
+          
+          // Export all keys
+          for (const keyInfo of tables) {
+            const keyResult = await ipcRenderer.invoke('db:query', {
+              connectionId,
+              query: `GET ${keyInfo.name}`,
+            });
+            
+            if (keyResult.success) {
+              exportData.keys[keyInfo.name] = keyResult.rows[0] || null;
+            }
+          }
+          
+          exportContent = JSON.stringify(exportData, null, 2);
+          fileName = `redis_backup_${new Date().toISOString().slice(0, 10)}.json`;
+          mimeType = 'application/json';
+          break;
+        }
+        
+        case 'sqlite': {
+          exportContent = `-- SQLite Database Export\n`;
+          exportContent += `-- File: ${server.sqliteFile}\n`;
+          exportContent += `-- Generated: ${new Date().toISOString()}\n`;
+          exportContent += `-- Marix SSH Client\n\n`;
+          exportContent += `PRAGMA foreign_keys=OFF;\nBEGIN TRANSACTION;\n\n`;
+          
+          for (const tableName of tablesToExport) {
+            if (exportOptions.includeDropTable) {
+              exportContent += `DROP TABLE IF EXISTS "${tableName}";\n`;
+            }
+            
+            if (exportOptions.includeStructure) {
+              const structResult = await ipcRenderer.invoke('db:query', {
+                connectionId,
+                query: `SELECT sql FROM sqlite_master WHERE type='table' AND name='${tableName}'`,
+              });
+              
+              if (structResult.success && structResult.rows.length > 0 && structResult.rows[0].sql) {
+                exportContent += `${structResult.rows[0].sql};\n\n`;
+              }
+            }
+            
+            if (exportOptions.includeData) {
+              const dataResult = await ipcRenderer.invoke('db:query', {
+                connectionId,
+                query: `SELECT * FROM "${tableName}"`,
+              });
+              
+              if (dataResult.success && dataResult.rows.length > 0) {
+                const columns = dataResult.columns.map((c: string) => `"${c}"`).join(', ');
+                
+                for (const row of dataResult.rows) {
+                  const values = dataResult.columns.map((col: string) => {
+                    const val = row[col];
+                    if (val === null) return 'NULL';
+                    if (typeof val === 'number') return val;
+                    return `'${String(val).replace(/'/g, "''")}'`;
+                  }).join(', ');
+                  
+                  exportContent += `INSERT INTO "${tableName}" (${columns}) VALUES (${values});\n`;
+                }
+                exportContent += '\n';
+              }
+            }
+          }
+          
+          exportContent += `COMMIT;\nPRAGMA foreign_keys=ON;\n`;
+          fileName = `sqlite_backup_${new Date().toISOString().slice(0, 10)}.sql`;
+          mimeType = 'text/sql';
+          break;
+        }
+        
+        default:
+          throw new Error(`Export not supported for ${server.protocol}`);
+      }
+      
+      // Download file
+      const blob = new Blob([exportContent], { type: mimeType });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = fileName;
+      a.click();
+      URL.revokeObjectURL(url);
+      
+      setImportLog(prev => [...prev, { type: 'success', message: `✓ Export completed: ${fileName}` }]);
+      
+    } catch (err: any) {
+      setError(err.message);
+      setImportLog(prev => [...prev, { type: 'error', message: `Export failed: ${err.message}` }]);
+    } finally {
+      setExporting(false);
+    }
+  };
+  
+  // Import database - supports all protocols
+  const importDatabase = async () => {
+    if (!importFile) {
+      setError('Please select a file');
+      return;
+    }
+    
+    if (!selectedDatabase && server.protocol !== 'sqlite' && server.protocol !== 'redis') {
+      setError('Please select a database first');
+      return;
+    }
+    
+    setImporting(true);
+    setImportLog([]);
+    setImportProgress({ current: 0, total: 0, message: 'Reading file...' });
+    
+    try {
+      const fileContent = await importFile.text();
+      
+      switch (server.protocol) {
+        case 'mysql':
+        case 'postgresql':
+        case 'sqlite': {
+          // Parse SQL statements
+          const statements: string[] = [];
+          let current = '';
+          let inString = false;
+          let stringChar = '';
+          
+          for (let i = 0; i < fileContent.length; i++) {
+            const char = fileContent[i];
+            const prevChar = i > 0 ? fileContent[i - 1] : '';
+            
+            if (!inString && (char === '"' || char === "'")) {
+              inString = true;
+              stringChar = char;
+            } else if (inString && char === stringChar && prevChar !== '\\') {
+              inString = false;
+            }
+            
+            if (char === ';' && !inString) {
+              const stmt = current.trim();
+              if (stmt && !stmt.startsWith('--') && !stmt.startsWith('/*')) {
+                statements.push(stmt);
+              }
+              current = '';
+            } else {
+              current += char;
+            }
+          }
+          
+          if (current.trim() && !current.trim().startsWith('--')) {
+            statements.push(current.trim());
+          }
+          
+          setImportProgress({ current: 0, total: statements.length, message: 'Processing SQL statements...' });
+          
+          // Drop tables if enabled
+          if (importDropTables && tables.length > 0) {
+            setImportLog(prev => [...prev, { type: 'info', message: '🗑️ Dropping existing tables...' }]);
+            
+            if (server.protocol === 'mysql') {
+              await ipcRenderer.invoke('db:query', { connectionId, database: selectedDatabase, query: 'SET FOREIGN_KEY_CHECKS=0' });
+            }
+            
+            for (const table of tables) {
+              try {
+                const dropQuery = server.protocol === 'postgresql' 
+                  ? `DROP TABLE IF EXISTS "${table.name}" CASCADE`
+                  : `DROP TABLE IF EXISTS "${table.name}"`;
+                await ipcRenderer.invoke('db:query', { connectionId, database: selectedDatabase, query: dropQuery });
+                setImportLog(prev => [...prev, { type: 'success', message: `  ✓ Dropped: ${table.name}` }]);
+              } catch (err: any) {
+                setImportLog(prev => [...prev, { type: 'error', message: `  ✗ Failed: ${table.name}` }]);
+              }
+            }
+            
+            if (server.protocol === 'mysql') {
+              await ipcRenderer.invoke('db:query', { connectionId, database: selectedDatabase, query: 'SET FOREIGN_KEY_CHECKS=1' });
+            }
+          }
+          
+          // Execute statements
+          let successCount = 0;
+          let errorCount = 0;
+          
+          for (let i = 0; i < statements.length; i++) {
+            const stmt = statements[i];
+            setImportProgress({ current: i + 1, total: statements.length, message: `Statement ${i + 1}/${statements.length}` });
+            
+            try {
+              const result = await ipcRenderer.invoke('db:query', {
+                connectionId,
+                database: selectedDatabase,
+                query: stmt,
+              });
+              
+              if (result.success) {
+                successCount++;
+                if (stmt.toUpperCase().includes('CREATE TABLE')) {
+                  const match = stmt.match(/CREATE TABLE\s+[`"]?(\w+)[`"]?/i);
+                  if (match) setImportLog(prev => [...prev, { type: 'success', message: `  ✓ Created: ${match[1]}` }]);
+                }
+              } else {
+                errorCount++;
+                if (!stmt.toUpperCase().startsWith('SET') && !stmt.toUpperCase().startsWith('COMMIT')) {
+                  setImportLog(prev => [...prev, { type: 'error', message: `  ✗ ${result.error?.substring(0, 60)}...` }]);
+                }
+              }
+            } catch (err: any) {
+              errorCount++;
+            }
+          }
+          
+          setImportLog(prev => [...prev, { 
+            type: errorCount > 0 ? 'error' : 'success', 
+            message: `\n📊 Complete: ${successCount} success, ${errorCount} errors` 
+          }]);
+          break;
+        }
+        
+        case 'mongodb': {
+          const importData = JSON.parse(fileContent);
+          const collections = Object.keys(importData).filter(k => k !== '_metadata');
+          
+          setImportProgress({ current: 0, total: collections.length, message: 'Importing collections...' });
+          
+          // Drop collections if enabled
+          if (importDropTables) {
+            setImportLog(prev => [...prev, { type: 'info', message: '🗑️ Dropping existing collections...' }]);
+            for (const table of tables) {
+              try {
+                await ipcRenderer.invoke('db:query', {
+                  connectionId,
+                  database: selectedDatabase,
+                  query: JSON.stringify({ action: 'drop', collection: table.name }),
+                });
+                setImportLog(prev => [...prev, { type: 'success', message: `  ✓ Dropped: ${table.name}` }]);
+              } catch (err) {
+                // Ignore drop errors
+              }
+            }
+          }
+          
+          let successCount = 0;
+          for (let i = 0; i < collections.length; i++) {
+            const collName = collections[i];
+            const docs = importData[collName];
+            setImportProgress({ current: i + 1, total: collections.length, message: `Importing ${collName}...` });
+            
+            if (Array.isArray(docs)) {
+              for (const doc of docs) {
+                try {
+                  await ipcRenderer.invoke('db:query', {
+                    connectionId,
+                    database: selectedDatabase,
+                    query: JSON.stringify({ action: 'insertOne', collection: collName, document: doc }),
+                  });
+                  successCount++;
+                } catch (err) {
+                  // Continue on error
+                }
+              }
+              setImportLog(prev => [...prev, { type: 'success', message: `  ✓ ${collName}: ${docs.length} documents` }]);
+            }
+          }
+          
+          setImportLog(prev => [...prev, { type: 'success', message: `\n📊 Imported ${successCount} documents` }]);
+          break;
+        }
+        
+        case 'redis': {
+          const importData = JSON.parse(fileContent);
+          const keys = Object.keys(importData.keys || {});
+          
+          setImportProgress({ current: 0, total: keys.length, message: 'Importing keys...' });
+          
+          // Clear existing keys if enabled
+          if (importDropTables) {
+            setImportLog(prev => [...prev, { type: 'info', message: '🗑️ Flushing database...' }]);
+            await ipcRenderer.invoke('db:query', { connectionId, query: 'FLUSHDB' });
+          }
+          
+          let successCount = 0;
+          for (let i = 0; i < keys.length; i++) {
+            const key = keys[i];
+            const value = importData.keys[key];
+            setImportProgress({ current: i + 1, total: keys.length, message: `Setting ${key}...` });
+            
+            try {
+              await ipcRenderer.invoke('db:query', {
+                connectionId,
+                query: `SET ${key} ${JSON.stringify(value)}`,
+              });
+              successCount++;
+            } catch (err) {
+              // Continue on error
+            }
+          }
+          
+          setImportLog(prev => [...prev, { type: 'success', message: `\n📊 Imported ${successCount} keys` }]);
+          break;
+        }
+        
+        default:
+          throw new Error(`Import not supported for ${server.protocol}`);
+      }
+      
+      // Refresh tables list
+      if (selectedDatabase) {
+        loadTables(selectedDatabase);
+      }
+      
+    } catch (err: any) {
+      setError(err.message);
+      setImportLog(prev => [...prev, { type: 'error', message: `Import failed: ${err.message}` }]);
+    } finally {
+      setImporting(false);
+      setImportProgress(null);
+    }
+  };
+  };
+  
+  // Open edit modal for a row
+  const openEditModal = (rowIdx: number) => {
+    if (!primaryKeyColumn || !tableData) {
+      setError('Cannot edit: No primary key found');
+      return;
+    }
+    const row = tableData.rows[rowIdx];
+    setEditingRowIdx(rowIdx);
+    setEditRowData({ ...row });
+    setEditModalOpen(true);
+  };
+  
+  // Close edit modal
+  const closeEditModal = () => {
+    setEditModalOpen(false);
+    setEditingRowIdx(null);
+    setEditRowData({});
+  };
+  
+  // Save row from modal
+  const saveRowFromModal = async () => {
+    if (editingRowIdx === null || !tableData || !primaryKeyColumn || !selectedTable) return;
+    
+    setSavingRow(true);
+    const originalRow = tableData.rows[editingRowIdx];
+    const primaryKeyValue = originalRow[primaryKeyColumn];
+    
+    try {
+      // Find changed columns
+      const changedColumns = tableData.columns.filter(col => 
+        col !== primaryKeyColumn && editRowData[col] !== originalRow[col]
+      );
+      
+      if (changedColumns.length === 0) {
+        closeEditModal();
+        return;
+      }
+      
+      // Update each changed column
+      for (const col of changedColumns) {
+        const result = await ipcRenderer.invoke('db:updateRow', {
+          connectionId,
+          database: selectedDatabase,
+          table: selectedTable,
+          primaryKey: primaryKeyColumn,
+          primaryKeyValue,
+          column: col,
+          newValue: editRowData[col] === '' ? null : editRowData[col],
+        });
+        
+        if (!result.success) {
+          setError(result.error);
+          setSavingRow(false);
+          return;
+        }
+      }
+      
+      // Update local data
+      const newRows = [...tableData.rows];
+      newRows[editingRowIdx] = { ...editRowData };
+      setTableData({ ...tableData, rows: newRows });
+      closeEditModal();
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setSavingRow(false);
+    }
+  };
+
+  // Execute query
+  const executeQuery = async () => {
+    if (!query.trim()) return;
+    
+    setExecuting(true);
+    setQueryResult(null);
+    
+    try {
+      const startTime = Date.now();
+      const result = await ipcRenderer.invoke('db:query', {
+        connectionId,
+        database: selectedDatabase,
+        query: query.trim(),
+      });
+      
+      const executionTime = Date.now() - startTime;
+      
+      if (result.success) {
+        setQueryResult({
+          ...result,
+          executionTime,
+        });
+        // Add to history
+        setQueryHistory(prev => {
+          const newHistory = [query.trim(), ...prev.filter(q => q !== query.trim())];
+          return newHistory.slice(0, 50); // Keep last 50 queries
+        });
+      } else {
+        setQueryResult({
+          columns: [],
+          rows: [],
+          executionTime,
+          error: result.error,
+        });
+      }
+    } catch (err: any) {
+      setQueryResult({
+        columns: [],
+        rows: [],
+        executionTime: 0,
+        error: err.message,
+      });
+    } finally {
+      setExecuting(false);
+    }
+  };
+  
+  // Export results to CSV
+  const exportToCSV = (data: QueryResult) => {
+    if (!data.columns.length || !data.rows.length) return;
+    
+    const header = data.columns.join(',');
+    const rows = data.rows.map(row => 
+      data.columns.map(col => {
+        const value = row[col];
+        if (value === null || value === undefined) return '';
+        const str = String(value);
+        // Escape quotes and wrap in quotes if contains comma or newline
+        if (str.includes(',') || str.includes('\n') || str.includes('"')) {
+          return `"${str.replace(/"/g, '""')}"`;
+        }
+        return str;
+      }).join(',')
+    );
+    
+    const csv = [header, ...rows].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${selectedTable || 'query'}_${Date.now()}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+  
+  // Export results to JSON
+  const exportToJSON = (data: QueryResult) => {
+    if (!data.rows.length) return;
+    
+    const json = JSON.stringify(data.rows, null, 2);
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${selectedTable || 'query'}_${Date.now()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+  
+  // Context menu actions
+  const copyRowAsJSON = () => {
+    if (contextMenu) {
+      navigator.clipboard.writeText(JSON.stringify(contextMenu.row, null, 2));
+      setContextMenu(null);
+    }
+  };
+  
+  const copyRowAsCSV = () => {
+    if (contextMenu && tableData) {
+      const values = tableData.columns.map(col => {
+        const val = contextMenu.row[col];
+        if (val === null) return 'NULL';
+        if (typeof val === 'string' && val.includes(',')) return `"${val}"`;
+        return String(val);
+      });
+      navigator.clipboard.writeText(values.join(','));
+      setContextMenu(null);
+    }
+  };
+  
+  const copyCellValue = (col: string) => {
+    if (contextMenu) {
+      const val = contextMenu.row[col];
+      navigator.clipboard.writeText(val === null ? 'NULL' : String(val));
+      setContextMenu(null);
+    }
+  };
+  
+  const deleteRow = async () => {
+    if (!contextMenu || !primaryKeyColumn || !selectedTable) {
+      setContextMenu(null);
+      return;
+    }
+    
+    const pkValue = contextMenu.row[primaryKeyColumn];
+    if (pkValue === undefined || pkValue === null) {
+      setContextMenu(null);
+      return;
+    }
+    
+    if (!confirm(t('dbConfirmDeleteRow'))) {
+      setContextMenu(null);
+      return;
+    }
+    
+    try {
+      const deleteQuery = `DELETE FROM ${selectedTable} WHERE ${primaryKeyColumn} = ${typeof pkValue === 'string' ? `'${pkValue}'` : pkValue}`;
+      await ipcRenderer.invoke('db:query', connectionId, deleteQuery);
+      // Refresh table data
+      loadTableData(selectedTable);
+    } catch (err: any) {
+      alert(t('dbError') + ': ' + err.message);
+    }
+    setContextMenu(null);
+  };
+  
+  // Close context menu when clicking elsewhere
+  useEffect(() => {
+    const handleClick = () => setContextMenu(null);
+    if (contextMenu) {
+      document.addEventListener('click', handleClick);
+    }
+    return () => document.removeEventListener('click', handleClick);
+  }, [contextMenu]);
+  
+  // Handle sidebar resize
+  const handleMouseMove = useCallback((e: MouseEvent) => {
+    if (isResizing) {
+      const newWidth = Math.max(150, Math.min(400, e.clientX));
+      setSidebarWidth(newWidth);
+    }
+  }, [isResizing]);
+  
+  const handleMouseUp = useCallback(() => {
+    setIsResizing(false);
+  }, []);
+  
+  useEffect(() => {
+    if (isResizing) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+    }
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isResizing, handleMouseMove, handleMouseUp]);
+  
+  // Render loading state
+  if (connecting) {
+    return (
+      <div className={`flex items-center justify-center h-full ${theme === 'dark' ? 'bg-gray-900 text-white' : 'bg-white text-gray-900'}`}>
+        <div className="text-center">
+          <div className="text-4xl mb-4">{protocolInfo.icon}</div>
+          <div className="text-lg">{t('dbConnecting')}</div>
+          <div className="text-sm text-gray-500 mt-2">{server.host}:{server.port}</div>
+        </div>
+      </div>
+    );
+  }
+  
+  // Render error state
+  if (error && !connected) {
+    return (
+      <div className={`flex items-center justify-center h-full ${theme === 'dark' ? 'bg-navy-900 text-white' : 'bg-white text-gray-900'}`}>
+        <div className="text-center">
+          <div className="text-4xl mb-4">❌</div>
+          <div className="text-lg text-red-500">{t('dbConnectionFailed')}</div>
+          <div className="text-sm text-gray-500 mt-2">{error}</div>
+          <button
+            onClick={() => window.location.reload()}
+            className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+          >
+            {t('dbRetry')}
+          </button>
+        </div>
+      </div>
+    );
+  }
+  
+  const isDark = theme === 'dark';
+  
+  return (
+    <div className={`flex h-full ${isDark ? 'bg-navy-900 text-white' : 'bg-gray-50 text-gray-900'}`}>
+      {/* Sidebar - Database/Table browser */}
+      <div 
+        className={`flex flex-col border-r ${isDark ? 'border-navy-600 bg-navy-800' : 'border-gray-200 bg-white'}`}
+        style={{ width: sidebarWidth }}
+      >
+        {/* Header */}
+        <div className={`p-4 border-b ${isDark ? 'border-navy-600 bg-gradient-to-r from-navy-800 to-navy-700' : 'border-gray-200 bg-gradient-to-r from-gray-50 to-white'}`}>
+          <div className="flex items-center gap-3 mb-2">
+            <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-xl ${isDark ? 'bg-indigo-500/20' : 'bg-indigo-100'}`}>
+              {protocolInfo.icon}
+            </div>
+            <div className="flex-1 min-w-0">
+              <span className="font-bold truncate block">{server.name}</span>
+              <div className="text-xs text-gray-500 truncate">{server.host}:{server.port}</div>
+            </div>
+          </div>
+        </div>
+        
+        {/* Database selector */}
+        {databases.length > 0 && (
+          <div className={`p-3 border-b ${isDark ? 'border-navy-600' : 'border-gray-200'}`}>
+            <select
+              value={selectedDatabase}
+              onChange={(e) => {
+                setSelectedDatabase(e.target.value);
+                loadTables(e.target.value);
+              }}
+              className={`w-full p-2.5 rounded-lg text-sm font-medium ${isDark ? 'bg-navy-900 text-white border-navy-500 focus:border-indigo-500' : 'bg-gray-50 text-gray-900 border-gray-300 focus:border-indigo-500'} border focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-colors`}
+            >
+              <option value="">{t('dbSelectDatabase')}</option>
+              {databases.map(db => (
+                <option key={db} value={db}>{db}</option>
+              ))}
+            </select>
+          </div>
+        )}
+        
+        {/* Tables list */}
+        <div className="flex-1 overflow-auto">
+          {loadingTables ? (
+            <div className="p-4 text-center text-gray-500">
+              <div className="animate-spin inline-block w-5 h-5 border-2 border-current border-t-transparent rounded-full"></div>
+            </div>
+          ) : tables.length > 0 ? (
+            <div className="py-2 px-2">
+              {tables.map(table => (
+                <button
+                  key={table.name}
+                  onClick={() => loadTableData(table.name)}
+                  className={`w-full px-3 py-2.5 text-left text-sm flex items-center gap-3 rounded-lg mb-1 transition-all ${
+                    selectedTable === table.name 
+                      ? (isDark ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30' : 'bg-indigo-50 text-indigo-700 border border-indigo-200') 
+                      : (isDark ? 'hover:bg-navy-700 text-gray-300' : 'hover:bg-gray-100 text-gray-700')
+                  }`}
+                >
+                  {table.type === 'view' ? (
+                    <span className="text-base">👁️</span>
+                  ) : table.type === 'collection' ? (
+                    <span className="text-base">📄</span>
+                  ) : (
+                    <svg className="w-4 h-4 flex-shrink-0 opacity-60" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <ellipse cx="12" cy="5" rx="9" ry="3" />
+                      <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" />
+                      <path d="M3 12c0 1.66 4 3 9 3s9-1.34 9-3" />
+                    </svg>
+                  )}
+                  <span className="truncate font-medium">{table.name}</span>
+                </button>
+              ))}
+            </div>
+          ) : selectedDatabase ? (
+            <div className="p-4 text-center text-gray-500 text-sm">
+              {t('dbNoTables')}
+            </div>
+          ) : (
+            <div className="p-4 text-center text-gray-500 text-sm">
+              {t('dbSelectDatabaseFirst')}
+            </div>
+          )}
+        </div>
+        
+        {/* Connection status */}
+        <div className={`p-3 border-t ${isDark ? 'border-navy-600 bg-navy-900/50' : 'border-gray-200 bg-gray-50'} text-xs`}>
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-green-500"></span>
+            <span className="text-gray-500">{t('dbConnected')}</span>
+          </div>
+        </div>
+      </div>
+      
+      {/* Resize handle */}
+      <div
+        className={`w-1.5 cursor-col-resize hover:bg-indigo-500 transition-colors flex items-center justify-center group ${isResizing ? 'bg-indigo-500' : isDark ? 'bg-navy-600' : 'bg-gray-200'}`}
+        onMouseDown={() => setIsResizing(true)}
+      >
+        <div className={`w-0.5 h-8 rounded ${isResizing ? 'bg-white' : isDark ? 'bg-navy-400 group-hover:bg-white' : 'bg-gray-400 group-hover:bg-indigo-600'}`} />
+      </div>
+      
+      {/* Main content */}
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Tabs */}
+        <div className={`flex gap-1 px-4 pt-3 pb-0 ${isDark ? 'bg-navy-800' : 'bg-white'}`}>
+          <button
+            onClick={() => setActiveTab('browser')}
+            className={`px-4 py-2.5 text-sm font-medium rounded-t-lg transition-all ${activeTab === 'browser' 
+              ? (isDark ? 'bg-navy-900 text-white border-t-2 border-indigo-500' : 'bg-gray-50 text-indigo-600 border-t-2 border-indigo-500') 
+              : (isDark ? 'text-gray-400 hover:text-white hover:bg-navy-700' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100')}`}
+          >
+            📋 {t('dbBrowser')}
+          </button>
+          <button
+            onClick={() => setActiveTab('query')}
+            className={`px-4 py-2.5 text-sm font-medium rounded-t-lg transition-all ${activeTab === 'query' 
+              ? (isDark ? 'bg-navy-900 text-white border-t-2 border-indigo-500' : 'bg-gray-50 text-indigo-600 border-t-2 border-indigo-500') 
+              : (isDark ? 'text-gray-400 hover:text-white hover:bg-navy-700' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100')}`}
+          >
+            ⚡ {t('dbQuery')}
+          </button>
+          <button
+            onClick={() => setActiveTab('structure')}
+            className={`px-4 py-2.5 text-sm font-medium rounded-t-lg transition-all ${activeTab === 'structure' 
+              ? (isDark ? 'bg-navy-900 text-white border-t-2 border-indigo-500' : 'bg-gray-50 text-indigo-600 border-t-2 border-indigo-500') 
+              : (isDark ? 'text-gray-400 hover:text-white hover:bg-navy-700' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100')}`}
+          >
+            🏗️ {t('dbStructure')}
+          </button>
+          <button
+            onClick={() => { setActiveTab('erd'); loadERDData(); }}
+            className={`px-4 py-2.5 text-sm font-medium rounded-t-lg transition-all ${activeTab === 'erd' 
+              ? (isDark ? 'bg-navy-900 text-white border-t-2 border-indigo-500' : 'bg-gray-50 text-indigo-600 border-t-2 border-indigo-500') 
+              : (isDark ? 'text-gray-400 hover:text-white hover:bg-navy-700' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100')}`}
+          >
+            📊 {t('dbERD')}
+          </button>
+          <button
+            onClick={() => setActiveTab('import-export')}
+            className={`px-4 py-2.5 text-sm font-medium rounded-t-lg transition-all ${activeTab === 'import-export' 
+              ? (isDark ? 'bg-navy-900 text-white border-t-2 border-indigo-500' : 'bg-gray-50 text-indigo-600 border-t-2 border-indigo-500') 
+              : (isDark ? 'text-gray-400 hover:text-white hover:bg-navy-700' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100')}`}
+          >
+            📦 {t('dbImportExport') || 'Import/Export'}
+          </button>
+        </div>
+        
+        {/* Tab content */}
+        <div className={`flex-1 overflow-hidden ${isDark ? 'bg-navy-900' : 'bg-gray-50'}`}>
+          {/* Browser tab - Table data viewer */}
+          {activeTab === 'browser' && (
+            <div className="h-full flex flex-col">
+              {selectedTable ? (
+                <>
+                  {/* Table header */}
+                  <div className={`p-4 border-b ${isDark ? 'border-navy-700 bg-navy-800/50' : 'border-gray-200 bg-white'} flex items-center justify-between`}>
+                    <div className="flex items-center gap-3">
+                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${isDark ? 'bg-indigo-500/20' : 'bg-indigo-100'}`}>
+                        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <ellipse cx="12" cy="5" rx="9" ry="3" />
+                          <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" />
+                        </svg>
+                      </div>
+                      <div>
+                        <span className="font-bold text-lg">{selectedTable}</span>
+                        {tableData && (
+                          <span className={`ml-2 text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                            {tableData.rows.length} {t('dbRows')}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => setShowFilters(!showFilters)}
+                        className={`px-3 py-1.5 text-sm rounded-lg flex items-center gap-1.5 transition-colors ${showFilters ? 'bg-indigo-600 text-white' : isDark ? 'bg-navy-700 hover:bg-navy-600 border border-navy-500' : 'bg-white hover:bg-gray-100 border border-gray-200'}`}
+                        title={t('dbFilter')}
+                      >
+                        🔍 {t('dbFilter')} {filters.length > 0 && <span className={`px-1.5 py-0.5 rounded text-xs ${isDark ? 'bg-indigo-500' : 'bg-indigo-100 text-indigo-700'}`}>{filters.length}</span>}
+                      </button>
+                      {tableData && tableData.rows.length > 0 && (
+                        <>
+                          <button
+                            onClick={() => exportToCSV(tableData)}
+                            className={`px-3 py-1 text-sm rounded ${isDark ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-200 hover:bg-gray-300'}`}
+                          >
+                            CSV
+                          </button>
+                          <button
+                            onClick={() => exportToJSON(tableData)}
+                            className={`px-3 py-1 text-sm rounded ${isDark ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-200 hover:bg-gray-300'}`}
+                          >
+                            JSON
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                  
+                  {/* Quick Filter Bar */}
+                  {showFilters && tableData && tableData.columns.length > 0 && (
+                    <div className={`p-3 border-b ${isDark ? 'border-gray-700 bg-gray-800/50' : 'border-gray-200 bg-gray-50'}`}>
+                      <div className="flex flex-col gap-2">
+                        {filters.map((filter, idx) => (
+                          <div key={idx} className="flex items-center gap-2">
+                            <select
+                              value={filter.column}
+                              onChange={(e) => {
+                                const newFilters = [...filters];
+                                newFilters[idx].column = e.target.value;
+                                setFilters(newFilters);
+                              }}
+                              className={`px-2 py-1 text-sm rounded ${isDark ? 'bg-gray-700 border-gray-600' : 'bg-white border-gray-300'} border`}
+                            >
+                              <option value="">{t('dbSelectColumn')}</option>
+                              {tableData.columns.map(col => (
+                                <option key={col} value={col}>{col}</option>
+                              ))}
+                            </select>
+                            <select
+                              value={filter.operator}
+                              onChange={(e) => {
+                                const newFilters = [...filters];
+                                newFilters[idx].operator = e.target.value;
+                                setFilters(newFilters);
+                              }}
+                              className={`px-2 py-1 text-sm rounded ${isDark ? 'bg-gray-700 border-gray-600' : 'bg-white border-gray-300'} border`}
+                            >
+                              <option value="=">=</option>
+                              <option value="!=">≠</option>
+                              <option value="LIKE">LIKE</option>
+                              <option value="NOT LIKE">NOT LIKE</option>
+                              <option value=">">&gt;</option>
+                              <option value="<">&lt;</option>
+                              <option value=">=">&gt;=</option>
+                              <option value="<=">&lt;=</option>
+                              <option value="IS NULL">IS NULL</option>
+                              <option value="IS NOT NULL">IS NOT NULL</option>
+                            </select>
+                            {!['IS NULL', 'IS NOT NULL'].includes(filter.operator) && (
+                              <input
+                                type="text"
+                                value={filter.value}
+                                onChange={(e) => {
+                                  const newFilters = [...filters];
+                                  newFilters[idx].value = e.target.value;
+                                  setFilters(newFilters);
+                                }}
+                                placeholder={t('dbFilterValue')}
+                                className={`flex-1 px-2 py-1 text-sm rounded ${isDark ? 'bg-gray-700 border-gray-600' : 'bg-white border-gray-300'} border`}
+                              />
+                            )}
+                            <button
+                              onClick={() => setFilters(filters.filter((_, i) => i !== idx))}
+                              className="text-red-500 hover:text-red-600 px-2"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        ))}
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => setFilters([...filters, { column: tableData.columns[0] || '', operator: '=', value: '' }])}
+                            className={`px-3 py-1 text-sm rounded ${isDark ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-200 hover:bg-gray-300'}`}
+                          >
+                            + {t('dbAddFilter')}
+                          </button>
+                          {filters.length > 0 && (
+                            <>
+                              <button
+                                onClick={() => {
+                                  applyFilters();
+                                }}
+                                className="px-3 py-1 text-sm rounded bg-blue-600 text-white hover:bg-blue-700"
+                              >
+                                {t('dbApplyFilter')}
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setFilters([]);
+                                  loadTableData(selectedTable);
+                                }}
+                                className={`px-3 py-1 text-sm rounded ${isDark ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-200 hover:bg-gray-300'}`}
+                              >
+                                {t('dbClearFilters')}
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Data grid */}
+                  <div className="flex-1 overflow-auto" style={{ scrollbarWidth: 'auto' }}>
+                    {loadingData ? (
+                      <div className="flex items-center justify-center h-full">
+                        <div className="animate-spin w-8 h-8 border-3 border-blue-500 border-t-transparent rounded-full"></div>
+                      </div>
+                    ) : tableData && tableData.columns.length > 0 ? (
+                      <table className="w-full text-sm">
+                        <thead className={`sticky top-0 ${isDark ? 'bg-gray-800' : 'bg-gray-100'} z-10`}>
+                          <tr>
+                            <th className={`px-2 py-2 text-center font-medium border-b ${isDark ? 'border-gray-700' : 'border-gray-200'} w-12`}>#</th>
+                            <th className={`px-2 py-2 text-center font-medium border-b ${isDark ? 'border-gray-700' : 'border-gray-200'} w-20`}>{t('dbActions')}</th>
+                            {tableData.columns.map(col => (
+                              <th key={col} className={`px-3 py-2 text-left font-medium border-b ${isDark ? 'border-gray-700' : 'border-gray-200'} whitespace-nowrap`}>
+                                {col}
+                                {col === primaryKeyColumn && <span className="ml-1 text-yellow-500">🔑</span>}
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {tableData.rows.map((row, idx) => (
+                            <tr 
+                              key={idx} 
+                              className={`hover:${isDark ? 'bg-gray-800' : 'bg-gray-50'} cursor-context-menu`}
+                              onContextMenu={(e) => {
+                                e.preventDefault();
+                                // Calculate position to prevent overflow
+                                const menuWidth = 200;
+                                const menuHeight = 350;
+                                let x = e.clientX;
+                                let y = e.clientY;
+                                if (x + menuWidth > window.innerWidth) {
+                                  x = window.innerWidth - menuWidth - 10;
+                                }
+                                if (y + menuHeight > window.innerHeight) {
+                                  y = window.innerHeight - menuHeight - 10;
+                                }
+                                setContextMenu({ x, y, rowIdx: idx, row });
+                              }}
+                            >
+                              <td className={`px-2 py-2 text-center border-b ${isDark ? 'border-gray-700 text-gray-500' : 'border-gray-200 text-gray-400'} text-xs`}>
+                                {idx + 1}
+                              </td>
+                              <td className={`px-2 py-2 text-center border-b ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
+                                <button
+                                  onClick={() => openEditModal(idx)}
+                                  disabled={!primaryKeyColumn}
+                                  className={`p-1.5 rounded ${isDark ? 'bg-blue-600 hover:bg-blue-700' : 'bg-blue-500 hover:bg-blue-600'} text-white text-xs disabled:opacity-50 disabled:cursor-not-allowed`}
+                                  title={primaryKeyColumn ? t('dbEdit') : t('dbNoPrimaryKey')}
+                                >
+                                  ✏️
+                                </button>
+                              </td>
+                              {tableData.columns.map(col => (
+                                <td 
+                                  key={col} 
+                                  className={`px-3 py-2 border-b ${isDark ? 'border-gray-700' : 'border-gray-200'} max-w-xs`}
+                                >
+                                  {row[col] === null ? (
+                                    <span className="text-gray-500 italic">NULL</span>
+                                  ) : typeof row[col] === 'object' ? (
+                                    <span className="truncate block" title={JSON.stringify(row[col])}>{JSON.stringify(row[col])}</span>
+                                  ) : (
+                                    <span className="truncate block" title={String(row[col])}>{String(row[col])}</span>
+                                  )}
+                                </td>
+                              ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    ) : (
+                      <div className="flex items-center justify-center h-full text-gray-500">
+                        {t('dbNoData')}
+                      </div>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <div className="flex items-center justify-center h-full text-gray-500">
+                  {t('dbSelectTableToView')}
+                </div>
+              )}
+            </div>
+          )}
+          
+          {/* Query tab */}
+          {activeTab === 'query' && (
+            <div className="h-full flex flex-col">
+              {/* Query History Panel */}
+              {showHistory && queryHistory.length > 0 && (
+                <div className={`border-b ${isDark ? 'border-gray-700 bg-gray-800/50' : 'border-gray-200 bg-gray-50'} max-h-48 overflow-auto`}>
+                  <div className={`sticky top-0 px-3 py-2 text-sm font-medium ${isDark ? 'bg-gray-800' : 'bg-gray-100'} flex items-center justify-between`}>
+                    <span>📜 {t('dbQueryHistory')} ({queryHistory.length})</span>
+                    <button
+                      onClick={() => setQueryHistory([])}
+                      className="text-xs text-gray-500 hover:text-red-500"
+                    >
+                      {t('dbClearHistory')}
+                    </button>
+                  </div>
+                  {queryHistory.map((q, idx) => (
+                    <div
+                      key={idx}
+                      onClick={() => {
+                        setQuery(q);
+                        setShowHistory(false);
+                      }}
+                      className={`px-3 py-2 text-sm font-mono cursor-pointer truncate border-b ${isDark ? 'border-gray-700 hover:bg-gray-700' : 'border-gray-200 hover:bg-gray-100'}`}
+                    >
+                      {q}
+                    </div>
+                  ))}
+                </div>
+              )}
+              
+              {/* Query editor with CodeMirror */}
+              <div className={`p-3 border-b ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
+                <SQLEditor
+                  value={query}
+                  onChange={setQuery}
+                  onExecute={executeQuery}
+                  theme={theme}
+                  dialect={server.protocol === 'mysql' ? 'mysql' : server.protocol === 'postgresql' ? 'postgresql' : server.protocol === 'sqlite' ? 'sqlite' : 'standard'}
+                  tables={tables.map(t => ({
+                    name: t.name,
+                    columns: t.columns?.map(c => c.name) || []
+                  }))}
+                  height="180px"
+                />
+                <div className="flex items-center justify-between mt-2">
+                  <div className="text-xs text-gray-500">
+                    {t('dbPressCtrlEnter')}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setShowHistory(!showHistory)}
+                      className={`px-3 py-1 text-sm rounded flex items-center gap-1 ${showHistory ? 'bg-blue-600 text-white' : isDark ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-200 hover:bg-gray-300'}`}
+                      title={t('dbQueryHistory')}
+                    >
+                      📜 {queryHistory.length > 0 && <span className="text-xs">({queryHistory.length})</span>}
+                    </button>
+                    <button
+                      onClick={() => setQuery('')}
+                      className={`px-3 py-1 text-sm rounded ${isDark ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-200 hover:bg-gray-300'}`}
+                    >
+                      {t('dbClear')}
+                    </button>
+                    <button
+                      onClick={executeQuery}
+                      disabled={executing || !query.trim()}
+                      className={`px-4 py-1 text-sm rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2`}
+                    >
+                      {executing ? (
+                        <>
+                          <div className="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full"></div>
+                          {t('dbExecuting')}
+                        </>
+                      ) : (
+                        <>▶ {t('dbExecute')}</>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              </div>
+              
+              {/* Query result */}
+              <div className="flex-1 overflow-auto">
+                {queryResult ? (
+                  queryResult.error ? (
+                    <div className="p-4">
+                      <div className="p-3 rounded bg-red-500/10 border border-red-500/30 text-red-500">
+                        <div className="font-medium mb-1">{t('dbError')}</div>
+                        <div className="text-sm">{queryResult.error}</div>
+                      </div>
+                    </div>
+                  ) : queryResult.columns.length > 0 ? (
+                    <>
+                      <div className={`px-3 py-2 border-b ${isDark ? 'border-gray-700' : 'border-gray-200'} text-sm text-gray-500 flex items-center justify-between`}>
+                        <span>{queryResult.rows.length} {t('dbRows')} ({queryResult.executionTime}ms)</span>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => exportToCSV(queryResult)}
+                            className={`px-2 py-1 text-xs rounded ${isDark ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-200 hover:bg-gray-300'}`}
+                          >
+                            CSV
+                          </button>
+                          <button
+                            onClick={() => exportToJSON(queryResult)}
+                            className={`px-2 py-1 text-xs rounded ${isDark ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-200 hover:bg-gray-300'}`}
+                          >
+                            JSON
+                          </button>
+                        </div>
+                      </div>
+                      <table className="w-full text-sm">
+                        <thead className={`sticky top-0 ${isDark ? 'bg-gray-800' : 'bg-gray-100'}`}>
+                          <tr>
+                            {queryResult.columns.map(col => (
+                              <th key={col} className={`px-3 py-2 text-left font-medium border-b ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
+                                {col}
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {queryResult.rows.map((row, idx) => (
+                            <tr key={idx} className={`hover:${isDark ? 'bg-gray-800' : 'bg-gray-50'}`}>
+                              {queryResult.columns.map(col => (
+                                <td key={col} className={`px-3 py-2 border-b ${isDark ? 'border-gray-700' : 'border-gray-200'} max-w-xs truncate`}>
+                                  {row[col] === null ? (
+                                    <span className="text-gray-500 italic">NULL</span>
+                                  ) : typeof row[col] === 'object' ? (
+                                    JSON.stringify(row[col])
+                                  ) : (
+                                    String(row[col])
+                                  )}
+                                </td>
+                              ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </>
+                  ) : (
+                    <div className="p-4">
+                      <div className={`p-3 rounded ${isDark ? 'bg-green-500/10 border-green-500/30' : 'bg-green-50 border-green-200'} border text-green-600`}>
+                        <div className="font-medium">{t('dbQuerySuccess')}</div>
+                        {queryResult.affectedRows !== undefined && (
+                          <div className="text-sm mt-1">{queryResult.affectedRows} {t('dbRowsAffected')}</div>
+                        )}
+                        <div className="text-sm text-gray-500 mt-1">{queryResult.executionTime}ms</div>
+                      </div>
+                    </div>
+                  )
+                ) : (
+                  <div className="flex items-center justify-center h-full text-gray-500">
+                    {t('dbWriteQuery')}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+          
+          {/* Structure tab */}
+          {activeTab === 'structure' && (
+            <div className="h-full overflow-auto p-4">
+              {selectedTable ? (
+                <div>
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-lg font-medium flex items-center gap-2">
+                      <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <ellipse cx="12" cy="5" rx="9" ry="3" />
+                        <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" />
+                        <path d="M3 12c0 1.66 4 3 9 3s9-1.34 9-3" />
+                      </svg>
+                      {selectedTable}
+                    </h3>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => {
+                          // Generate ADD COLUMN query
+                          const addQuery = `ALTER TABLE \`${selectedTable}\` ADD COLUMN \`new_column\` VARCHAR(255) NULL;`;
+                          setQuery(addQuery);
+                          setActiveTab('query');
+                        }}
+                        className={`px-3 py-1.5 rounded text-sm ${isDark ? 'bg-green-600 hover:bg-green-700' : 'bg-green-500 hover:bg-green-600'} text-white flex items-center gap-1`}
+                        title={t('dbAddColumn') || 'Add Column'}
+                      >
+                        ➕ {t('dbAddColumn') || 'Add Column'}
+                      </button>
+                      <button
+                        onClick={() => loadTableStructure(selectedTable)}
+                        className={`p-2 rounded hover:${isDark ? 'bg-gray-700' : 'bg-gray-200'}`}
+                        title={t('dbRefresh')}
+                      >
+                        🔄
+                      </button>
+                    </div>
+                  </div>
+                  
+                  {loadingStructure ? (
+                    <div className="flex items-center justify-center py-8">
+                      <div className="animate-spin w-8 h-8 border-3 border-blue-500 border-t-transparent rounded-full"></div>
+                    </div>
+                  ) : tableStructure.length > 0 ? (
+                    <div className={`rounded-lg border ${isDark ? 'border-gray-700' : 'border-gray-200'} overflow-hidden`}>
+                      <table className="w-full text-sm">
+                        <thead className={isDark ? 'bg-gray-800' : 'bg-gray-100'}>
+                          <tr>
+                            <th className={`px-4 py-3 text-left font-medium ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>#</th>
+                            <th className={`px-4 py-3 text-left font-medium ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>{t('dbColumnName')}</th>
+                            <th className={`px-4 py-3 text-left font-medium ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>{t('dbColumnType')}</th>
+                            <th className={`px-4 py-3 text-left font-medium ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>{t('dbColumnNullable')}</th>
+                            <th className={`px-4 py-3 text-left font-medium ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>{t('dbColumnKey')}</th>
+                            <th className={`px-4 py-3 text-left font-medium ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>{t('dbColumnDefault')}</th>
+                            <th className={`px-4 py-3 text-left font-medium ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>{t('dbColumnExtra')}</th>
+                            <th className={`px-4 py-3 text-center font-medium ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>{t('dbActions')}</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {tableStructure.map((col, idx) => (
+                            <tr key={col.name} className={`${isDark ? 'hover:bg-gray-800' : 'hover:bg-gray-50'} border-t ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
+                              <td className={`px-4 py-3 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>{idx + 1}</td>
+                              <td className="px-4 py-3 font-medium flex items-center gap-2">
+                                {col.key === 'PRI' && <span className="text-yellow-500">🔑</span>}
+                                {col.name}
+                              </td>
+                              <td className="px-4 py-3">
+                                <span className={`px-2 py-1 rounded text-xs font-mono ${isDark ? 'bg-blue-500/20 text-blue-400' : 'bg-blue-100 text-blue-700'}`}>
+                                  {col.type}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3">
+                                {col.nullable ? (
+                                  <span className={`px-2 py-1 rounded text-xs ${isDark ? 'bg-green-500/20 text-green-400' : 'bg-green-100 text-green-700'}`}>YES</span>
+                                ) : (
+                                  <span className={`px-2 py-1 rounded text-xs ${isDark ? 'bg-red-500/20 text-red-400' : 'bg-red-100 text-red-700'}`}>NO</span>
+                                )}
+                              </td>
+                              <td className="px-4 py-3">
+                                {col.key === 'PRI' ? (
+                                  <span className={`px-2 py-1 rounded text-xs ${isDark ? 'bg-yellow-500/20 text-yellow-400' : 'bg-yellow-100 text-yellow-700'}`}>PRIMARY</span>
+                                ) : col.key === 'UNI' ? (
+                                  <span className={`px-2 py-1 rounded text-xs ${isDark ? 'bg-purple-500/20 text-purple-400' : 'bg-purple-100 text-purple-700'}`}>UNIQUE</span>
+                                ) : col.key === 'MUL' ? (
+                                  <span className={`px-2 py-1 rounded text-xs ${isDark ? 'bg-cyan-500/20 text-cyan-400' : 'bg-cyan-100 text-cyan-700'}`}>INDEX</span>
+                                ) : (
+                                  <span className="text-gray-500">-</span>
+                                )}
+                              </td>
+                              <td className="px-4 py-3">
+                                {col.default !== null && col.default !== undefined ? (
+                                  <span className={`font-mono text-xs ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>{String(col.default)}</span>
+                                ) : (
+                                  <span className="text-gray-500 italic">NULL</span>
+                                )}
+                              </td>
+                              <td className="px-4 py-3">
+                                {col.extra ? (
+                                  <span className={`px-2 py-1 rounded text-xs ${isDark ? 'bg-orange-500/20 text-orange-400' : 'bg-orange-100 text-orange-700'}`}>
+                                    {col.extra}
+                                  </span>
+                                ) : (
+                                  <span className="text-gray-500">-</span>
+                                )}
+                              </td>
+                              <td className="px-4 py-3 text-center">
+                                <div className="flex items-center justify-center gap-1">
+                                  <button
+                                    onClick={() => {
+                                      // Generate ALTER query for editing this column
+                                      const alterQuery = `ALTER TABLE \`${selectedTable}\` MODIFY COLUMN \`${col.name}\` ${col.type}${col.nullable ? '' : ' NOT NULL'}${col.default !== null ? ` DEFAULT '${col.default}'` : ''}${col.extra ? ' ' + col.extra : ''};`;
+                                      setQuery(alterQuery);
+                                      setActiveTab('query');
+                                    }}
+                                    className={`p-1.5 rounded ${isDark ? 'hover:bg-gray-700' : 'hover:bg-gray-200'}`}
+                                    title={t('dbEdit')}
+                                  >
+                                    ✏️
+                                  </button>
+                                  {col.key !== 'PRI' && (
+                                    <button
+                                      onClick={() => {
+                                        if (confirm(t('dbConfirmDeleteColumn') || `Delete column "${col.name}"?`)) {
+                                          const dropQuery = `ALTER TABLE \`${selectedTable}\` DROP COLUMN \`${col.name}\`;`;
+                                          setQuery(dropQuery);
+                                          setActiveTab('query');
+                                        }
+                                      }}
+                                      className={`p-1.5 rounded text-red-500 ${isDark ? 'hover:bg-gray-700' : 'hover:bg-gray-200'}`}
+                                      title={t('dbDeleteColumn') || 'Delete column'}
+                                    >
+                                      🗑️
+                                    </button>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <div className={`text-center py-8 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                      {t('dbNoStructure')}
+                    </div>
+                  )}
+                  
+                  {/* Summary */}
+                  {tableStructure.length > 0 && (
+                    <div className={`mt-4 p-3 rounded-lg ${isDark ? 'bg-gray-800' : 'bg-gray-100'} text-sm`}>
+                      <div className="flex gap-6">
+                        <span><strong>{tableStructure.length}</strong> {t('dbColumns')}</span>
+                        <span><strong>{tableStructure.filter(c => c.key === 'PRI').length}</strong> {t('dbPrimaryKeys')}</span>
+                        <span><strong>{tableStructure.filter(c => !c.nullable).length}</strong> {t('dbRequiredFields')}</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="flex items-center justify-center h-full text-gray-500">
+                  {t('dbSelectTableForStructure')}
+                </div>
+              )}
+            </div>
+          )}
+          
+          {/* ERD tab */}
+          {activeTab === 'erd' && (
+            <div className="h-full relative">
+              {loadingErd ? (
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <div className="text-center">
+                    <div className="animate-spin w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full mb-4"></div>
+                    <p className="text-gray-500">{t('erdLoading')}</p>
+                  </div>
+                </div>
+              ) : (
+                <ERDDiagram
+                  tables={erdTables}
+                  relationships={erdRelationships}
+                  theme={isDark ? 'dark' : 'light'}
+                  onTableClick={(tableName) => {
+                    setSelectedTable(tableName);
+                    setActiveTab('structure');
+                  }}
+                />
+              )}
+            </div>
+          )}
+          
+          {/* Import/Export tab */}
+          {activeTab === 'import-export' && (
+            <div className="h-full overflow-auto">
+              <div className="p-6 max-w-4xl mx-auto">
+                {/* Header */}
+                <div className="mb-8">
+                  <h2 className={`text-2xl font-bold mb-2 ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                    📦 {t('dbImportExport') || 'Import / Export'}
+                  </h2>
+                  <p className={`${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                    {t('dbImportExportDesc') || 'Import SQL files or export your database to SQL format'}
+                  </p>
+                </div>
+                
+                {!selectedDatabase ? (
+                  <div className={`text-center py-12 rounded-xl ${isDark ? 'bg-navy-800/50' : 'bg-gray-100'}`}>
+                    <div className="text-5xl mb-4">🗄️</div>
+                    <p className={`${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                      {t('dbSelectDatabaseFirst') || 'Please select a database first'}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    {/* Import Section */}
+                    <div className={`rounded-xl border-2 ${isDark ? 'bg-navy-800/50 border-navy-600' : 'bg-white border-gray-200'} overflow-hidden`}>
+                      <div className={`px-5 py-4 border-b ${isDark ? 'border-navy-600 bg-gradient-to-r from-blue-600/20 to-cyan-600/20' : 'border-gray-200 bg-gradient-to-r from-blue-50 to-cyan-50'}`}>
+                        <div className="flex items-center gap-3">
+                          <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${isDark ? 'bg-blue-500/20' : 'bg-blue-100'}`}>
+                            <span className="text-xl">📥</span>
+                          </div>
+                          <div>
+                            <h3 className={`font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                              {t('dbImport') || 'Import'}
+                            </h3>
+                            <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                              {t('dbImportSQLFile') || 'Import SQL file into database'}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                      
+                      <div className="p-5 space-y-4">
+                        {/* File Upload */}
+                        <div>
+                          <label className={`block text-sm font-medium mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                            {t('dbSelectFile') || 'Select SQL File'}
+                          </label>
+                          <div 
+                            className={`relative border-2 border-dashed rounded-lg p-6 text-center cursor-pointer transition-colors ${
+                              isDark 
+                                ? 'border-navy-500 hover:border-blue-500 bg-navy-900/50' 
+                                : 'border-gray-300 hover:border-blue-400 bg-gray-50'
+                            } ${importFile ? (isDark ? 'border-green-500' : 'border-green-400') : ''}`}
+                            onClick={() => document.getElementById('sql-file-input')?.click()}
+                          >
+                            <input
+                              id="sql-file-input"
+                              type="file"
+                              accept=".sql,.txt"
+                              className="hidden"
+                              onChange={(e) => setImportFile(e.target.files?.[0] || null)}
+                            />
+                            {importFile ? (
+                              <div className="flex items-center justify-center gap-3">
+                                <span className="text-2xl">📄</span>
+                                <div className="text-left">
+                                  <p className={`font-medium ${isDark ? 'text-green-400' : 'text-green-600'}`}>
+                                    {importFile.name}
+                                  </p>
+                                  <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                                    {(importFile.size / 1024).toFixed(2)} KB
+                                  </p>
+                                </div>
+                              </div>
+                            ) : (
+                              <>
+                                <span className="text-3xl mb-2 block">📁</span>
+                                <p className={`${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                                  {t('dbClickToUpload') || 'Click to select .sql file'}
+                                </p>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                        
+                        {/* Drop Tables Option */}
+                        <label className={`flex items-center gap-3 p-4 rounded-lg cursor-pointer transition-colors ${
+                          isDark ? 'bg-red-500/10 hover:bg-red-500/20' : 'bg-red-50 hover:bg-red-100'
+                        }`}>
+                          <input
+                            type="checkbox"
+                            checked={importDropTables}
+                            onChange={(e) => setImportDropTables(e.target.checked)}
+                            className="w-5 h-5 rounded border-2 text-red-600 focus:ring-red-500"
+                          />
+                          <div>
+                            <p className={`font-medium ${isDark ? 'text-red-400' : 'text-red-600'}`}>
+                              🗑️ {t('dbDropAllTables') || 'Drop all existing tables first'}
+                            </p>
+                            <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                              {t('dbDropAllTablesDesc') || 'Warning: This will delete all data in existing tables'}
+                            </p>
+                          </div>
+                        </label>
+                        
+                        {/* Import Button */}
+                        <button
+                          onClick={importDatabase}
+                          disabled={!importFile || importing}
+                          className={`w-full py-3 rounded-lg font-medium flex items-center justify-center gap-2 transition-all ${
+                            !importFile || importing
+                              ? 'bg-gray-500 cursor-not-allowed opacity-50'
+                              : 'bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-700 hover:to-cyan-700 text-white shadow-lg hover:shadow-xl'
+                          }`}
+                        >
+                          {importing ? (
+                            <>
+                              <div className="animate-spin w-5 h-5 border-2 border-white border-t-transparent rounded-full"></div>
+                              {t('dbImporting') || 'Importing...'}
+                            </>
+                          ) : (
+                            <>
+                              📥 {t('dbStartImport') || 'Start Import'}
+                            </>
+                          )}
+                        </button>
+                        
+                        {/* Import Progress */}
+                        {importProgress && (
+                          <div className={`p-4 rounded-lg ${isDark ? 'bg-navy-900' : 'bg-gray-100'}`}>
+                            <div className="flex items-center justify-between mb-2">
+                              <span className={`text-sm ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                                {importProgress.message}
+                              </span>
+                              <span className={`text-sm font-mono ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                                {importProgress.current}/{importProgress.total}
+                              </span>
+                            </div>
+                            <div className={`w-full h-2 rounded-full ${isDark ? 'bg-navy-700' : 'bg-gray-200'}`}>
+                              <div 
+                                className="h-full rounded-full bg-gradient-to-r from-blue-500 to-cyan-500 transition-all duration-300"
+                                style={{ width: `${importProgress.total > 0 ? (importProgress.current / importProgress.total * 100) : 0}%` }}
+                              />
+                            </div>
+                          </div>
+                        )}
+                        
+                        {/* Import Log */}
+                        {importLog.length > 0 && (
+                          <div className={`max-h-48 overflow-auto rounded-lg p-3 font-mono text-xs ${isDark ? 'bg-navy-900' : 'bg-gray-100'}`}>
+                            {importLog.map((log, idx) => (
+                              <div 
+                                key={idx} 
+                                className={`py-1 ${
+                                  log.type === 'success' ? 'text-green-500' :
+                                  log.type === 'error' ? 'text-red-500' : 
+                                  isDark ? 'text-gray-400' : 'text-gray-600'
+                                }`}
+                              >
+                                {log.message}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    
+                    {/* Export Section */}
+                    <div className={`rounded-xl border-2 ${isDark ? 'bg-navy-800/50 border-navy-600' : 'bg-white border-gray-200'} overflow-hidden`}>
+                      <div className={`px-5 py-4 border-b ${isDark ? 'border-navy-600 bg-gradient-to-r from-emerald-600/20 to-teal-600/20' : 'border-gray-200 bg-gradient-to-r from-emerald-50 to-teal-50'}`}>
+                        <div className="flex items-center gap-3">
+                          <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${isDark ? 'bg-emerald-500/20' : 'bg-emerald-100'}`}>
+                            <span className="text-xl">📤</span>
+                          </div>
+                          <div>
+                            <h3 className={`font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                              {t('dbExport') || 'Export'}
+                            </h3>
+                            <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                              {t('dbExportToSQL') || 'Export database to SQL file'}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                      
+                      <div className="p-5 space-y-4">
+                        {/* Export Options */}
+                        <div className="space-y-3">
+                          <label className={`flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-colors ${
+                            isDark ? 'bg-navy-900/50 hover:bg-navy-900' : 'bg-gray-50 hover:bg-gray-100'
+                          }`}>
+                            <input
+                              type="checkbox"
+                              checked={exportOptions.includeDropTable}
+                              onChange={(e) => setExportOptions({ ...exportOptions, includeDropTable: e.target.checked })}
+                              className="w-5 h-5 rounded border-2 text-emerald-600 focus:ring-emerald-500"
+                            />
+                            <div>
+                              <p className={`font-medium ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                                {t('dbIncludeDropTable') || 'Include DROP TABLE statements'}
+                              </p>
+                              <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                                {t('dbIncludeDropTableDesc') || 'Add DROP TABLE IF EXISTS before CREATE'}
+                              </p>
+                            </div>
+                          </label>
+                          
+                          <label className={`flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-colors ${
+                            isDark ? 'bg-navy-900/50 hover:bg-navy-900' : 'bg-gray-50 hover:bg-gray-100'
+                          }`}>
+                            <input
+                              type="checkbox"
+                              checked={exportOptions.includeStructure}
+                              onChange={(e) => setExportOptions({ ...exportOptions, includeStructure: e.target.checked })}
+                              className="w-5 h-5 rounded border-2 text-emerald-600 focus:ring-emerald-500"
+                            />
+                            <div>
+                              <p className={`font-medium ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                                {t('dbIncludeStructure') || 'Include table structure'}
+                              </p>
+                              <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                                {t('dbIncludeStructureDesc') || 'Export CREATE TABLE statements'}
+                              </p>
+                            </div>
+                          </label>
+                          
+                          <label className={`flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-colors ${
+                            isDark ? 'bg-navy-900/50 hover:bg-navy-900' : 'bg-gray-50 hover:bg-gray-100'
+                          }`}>
+                            <input
+                              type="checkbox"
+                              checked={exportOptions.includeData}
+                              onChange={(e) => setExportOptions({ ...exportOptions, includeData: e.target.checked })}
+                              className="w-5 h-5 rounded border-2 text-emerald-600 focus:ring-emerald-500"
+                            />
+                            <div>
+                              <p className={`font-medium ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                                {t('dbIncludeData') || 'Include table data'}
+                              </p>
+                              <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                                {t('dbIncludeDataDesc') || 'Export INSERT statements for all rows'}
+                              </p>
+                            </div>
+                          </label>
+                        </div>
+                        
+                        {/* Tables to export */}
+                        <div>
+                          <label className={`block text-sm font-medium mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                            {t('dbSelectTables') || 'Select Tables'} ({exportOptions.selectedTables.length > 0 ? exportOptions.selectedTables.length : 'All'})
+                          </label>
+                          <div className={`max-h-40 overflow-auto rounded-lg border ${isDark ? 'bg-navy-900 border-navy-600' : 'bg-gray-50 border-gray-200'}`}>
+                            {tables.length > 0 ? (
+                              <div className="p-2 space-y-1">
+                                <label className={`flex items-center gap-2 p-2 rounded cursor-pointer ${isDark ? 'hover:bg-navy-700' : 'hover:bg-gray-100'}`}>
+                                  <input
+                                    type="checkbox"
+                                    checked={exportOptions.selectedTables.length === 0}
+                                    onChange={() => setExportOptions({ ...exportOptions, selectedTables: [] })}
+                                    className="w-4 h-4 rounded border-2 text-emerald-600"
+                                  />
+                                  <span className={`font-medium ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`}>
+                                    ✓ {t('dbAllTables') || 'All tables'} ({tables.length})
+                                  </span>
+                                </label>
+                                {tables.map(table => (
+                                  <label 
+                                    key={table.name} 
+                                    className={`flex items-center gap-2 p-2 rounded cursor-pointer ${isDark ? 'hover:bg-navy-700' : 'hover:bg-gray-100'}`}
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={exportOptions.selectedTables.includes(table.name)}
+                                      onChange={(e) => {
+                                        if (e.target.checked) {
+                                          setExportOptions({ 
+                                            ...exportOptions, 
+                                            selectedTables: [...exportOptions.selectedTables, table.name] 
+                                          });
+                                        } else {
+                                          setExportOptions({ 
+                                            ...exportOptions, 
+                                            selectedTables: exportOptions.selectedTables.filter(t => t !== table.name) 
+                                          });
+                                        }
+                                      }}
+                                      className="w-4 h-4 rounded border-2 text-emerald-600"
+                                    />
+                                    <span className={`text-sm ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                                      {table.name}
+                                    </span>
+                                  </label>
+                                ))}
+                              </div>
+                            ) : (
+                              <div className={`p-4 text-center ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                                {t('dbNoTables') || 'No tables found'}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                        
+                        {/* Export Button */}
+                        <button
+                          onClick={exportDatabase}
+                          disabled={exporting || tables.length === 0}
+                          className={`w-full py-3 rounded-lg font-medium flex items-center justify-center gap-2 transition-all ${
+                            exporting || tables.length === 0
+                              ? 'bg-gray-500 cursor-not-allowed opacity-50'
+                              : 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white shadow-lg hover:shadow-xl'
+                          }`}
+                        >
+                          {exporting ? (
+                            <>
+                              <div className="animate-spin w-5 h-5 border-2 border-white border-t-transparent rounded-full"></div>
+                              {t('dbExporting') || 'Exporting...'}
+                            </>
+                          ) : (
+                            <>
+                              📤 {t('dbDownloadSQL') || 'Download SQL File'}
+                            </>
+                          )}
+                        </button>
+                        
+                        {/* Export Info */}
+                        <div className={`p-3 rounded-lg text-sm ${isDark ? 'bg-navy-900/50 text-gray-400' : 'bg-gray-100 text-gray-600'}`}>
+                          <p className="flex items-center gap-2">
+                            <span>💡</span>
+                            {t('dbExportInfo') || 'The exported SQL file can be imported into any MySQL-compatible database'}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+      
+      {/* Edit Row Modal */}
+      {editModalOpen && editingRowIdx !== null && tableData && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div 
+            className={`w-full max-w-2xl max-h-[90vh] rounded-lg shadow-2xl overflow-hidden ${isDark ? 'bg-gray-800' : 'bg-white'}`}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className={`px-6 py-4 border-b ${isDark ? 'border-gray-700 bg-gray-900' : 'border-gray-200 bg-gray-50'} flex items-center justify-between`}>
+              <div>
+                <h3 className="text-lg font-semibold flex items-center gap-2">
+                  ✏️ {t('dbEditRow')}
+                </h3>
+                <p className="text-sm text-gray-500 mt-1">
+                  {selectedTable} #{editingRowIdx + 1}
+                </p>
+              </div>
+              <button
+                onClick={closeEditModal}
+                className={`p-2 rounded-full ${isDark ? 'hover:bg-gray-700' : 'hover:bg-gray-200'}`}
+              >
+                ✕
+              </button>
+            </div>
+            
+            {/* Modal Body - Scrollable form */}
+            <div className="p-6 overflow-y-auto max-h-[60vh]">
+              <div className="space-y-4">
+                {tableData.columns.map((col, idx) => {
+                  const colInfo = tableStructure.find(c => c.name === col);
+                  const isPrimaryKey = col === primaryKeyColumn;
+                  const originalValue = tableData.rows[editingRowIdx][col];
+                  
+                  return (
+                    <div key={col} className={`${isPrimaryKey ? 'opacity-60' : ''}`}>
+                      <label className={`block text-sm font-medium mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                        <span className="flex items-center gap-2">
+                          {isPrimaryKey && <span className="text-yellow-500">🔑</span>}
+                          {col}
+                          {colInfo && (
+                            <span className={`text-xs px-2 py-0.5 rounded ${isDark ? 'bg-gray-700 text-gray-400' : 'bg-gray-200 text-gray-500'}`}>
+                              {colInfo.type}
+                            </span>
+                          )}
+                          {colInfo && !colInfo.nullable && !isPrimaryKey && (
+                            <span className="text-red-500 text-xs">*</span>
+                          )}
+                        </span>
+                      </label>
+                      
+                      {isPrimaryKey ? (
+                        <div className={`px-4 py-3 rounded-lg ${isDark ? 'bg-gray-900 text-gray-400' : 'bg-gray-100 text-gray-600'} font-mono text-sm`}>
+                          {originalValue === null ? <span className="italic">NULL</span> : String(originalValue)}
+                        </div>
+                      ) : (
+                        <div className="relative">
+                          {/* Check if value is long, use textarea */}
+                          {String(editRowData[col] ?? '').length > 100 || String(editRowData[col] ?? '').includes('\n') ? (
+                            <textarea
+                              value={editRowData[col] === null ? '' : String(editRowData[col] ?? '')}
+                              onChange={(e) => setEditRowData(prev => ({ ...prev, [col]: e.target.value }))}
+                              placeholder="NULL"
+                              rows={4}
+                              className={`w-full px-4 py-3 rounded-lg text-sm font-mono resize-y ${isDark 
+                                ? 'bg-gray-900 text-white border-gray-600 placeholder-gray-500 focus:border-blue-500' 
+                                : 'bg-white text-gray-900 border-gray-300 placeholder-gray-400 focus:border-blue-500'
+                              } border-2 focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-colors`}
+                            />
+                          ) : (
+                            <input
+                              type="text"
+                              value={editRowData[col] === null ? '' : String(editRowData[col] ?? '')}
+                              onChange={(e) => setEditRowData(prev => ({ ...prev, [col]: e.target.value }))}
+                              placeholder="NULL"
+                              className={`w-full px-4 py-3 rounded-lg text-sm font-mono ${isDark 
+                                ? 'bg-gray-900 text-white border-gray-600 placeholder-gray-500 focus:border-blue-500' 
+                                : 'bg-white text-gray-900 border-gray-300 placeholder-gray-400 focus:border-blue-500'
+                              } border-2 focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-colors`}
+                            />
+                          )}
+                          
+                          {/* Set NULL button */}
+                          {editRowData[col] !== null && editRowData[col] !== '' && (
+                            <button
+                              onClick={() => setEditRowData(prev => ({ ...prev, [col]: null }))}
+                              className={`absolute right-2 top-1/2 -translate-y-1/2 px-2 py-1 text-xs rounded ${isDark ? 'bg-gray-700 hover:bg-gray-600 text-gray-300' : 'bg-gray-200 hover:bg-gray-300 text-gray-600'}`}
+                              title="Set to NULL"
+                            >
+                              NULL
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+            
+            {/* Modal Footer */}
+            <div className={`px-6 py-4 border-t ${isDark ? 'border-gray-700 bg-gray-900' : 'border-gray-200 bg-gray-50'} flex items-center justify-end gap-3`}>
+              <button
+                onClick={closeEditModal}
+                disabled={savingRow}
+                className={`px-4 py-2 rounded-lg text-sm font-medium ${isDark 
+                  ? 'bg-gray-700 hover:bg-gray-600 text-white' 
+                  : 'bg-gray-200 hover:bg-gray-300 text-gray-800'
+                } disabled:opacity-50 transition-colors`}
+              >
+                {t('cancel')}
+              </button>
+              <button
+                onClick={saveRowFromModal}
+                disabled={savingRow}
+                className="px-6 py-2 rounded-lg text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-50 flex items-center gap-2 transition-colors"
+              >
+                {savingRow ? (
+                  <>
+                    <div className="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full"></div>
+                    {t('dbSaving')}
+                  </>
+                ) : (
+                  <>
+                    ✓ {t('save')}
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* Context Menu */}
+      {contextMenu && (
+        <>
+          {/* Backdrop to close menu on click outside */}
+          <div 
+            className="fixed inset-0 z-40" 
+            onClick={() => setContextMenu(null)}
+            onContextMenu={(e) => { e.preventDefault(); setContextMenu(null); }}
+          />
+          <div
+            className={`fixed z-50 py-2 rounded-lg shadow-xl min-w-48 ${isDark ? 'bg-gray-800 border border-gray-700' : 'bg-white border border-gray-200'}`}
+            style={{ 
+              left: contextMenu.x, 
+              top: contextMenu.y,
+              maxHeight: '300px',
+              overflowY: 'auto'
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+          <button
+            onClick={copyRowAsJSON}
+            className={`w-full px-4 py-2 text-left text-sm flex items-center gap-2 ${isDark ? 'hover:bg-gray-700' : 'hover:bg-gray-100'}`}
+          >
+            📋 {t('dbCopyAsJSON')}
+          </button>
+          <button
+            onClick={copyRowAsCSV}
+            className={`w-full px-4 py-2 text-left text-sm flex items-center gap-2 ${isDark ? 'hover:bg-gray-700' : 'hover:bg-gray-100'}`}
+          >
+            📄 {t('dbCopyAsCSV')}
+          </button>
+          <div className={`my-1 border-t ${isDark ? 'border-gray-700' : 'border-gray-200'}`}></div>
+          <button
+            onClick={() => { if (selectedTable) loadTableData(selectedTable); setContextMenu(null); }}
+            className={`w-full px-4 py-2 text-left text-sm flex items-center gap-2 ${isDark ? 'hover:bg-gray-700' : 'hover:bg-gray-100'}`}
+          >
+            🔄 {t('dbRefresh')}
+          </button>
+          {primaryKeyColumn && (
+            <button
+              onClick={() => openEditModal(contextMenu.rowIdx)}
+              className={`w-full px-4 py-2 text-left text-sm flex items-center gap-2 ${isDark ? 'hover:bg-gray-700' : 'hover:bg-gray-100'}`}
+            >
+              ✏️ {t('dbEdit')}
+            </button>
+          )}
+          {primaryKeyColumn && (
+            <button
+              onClick={deleteRow}
+              className={`w-full px-4 py-2 text-left text-sm flex items-center gap-2 text-red-500 ${isDark ? 'hover:bg-gray-700' : 'hover:bg-gray-100'}`}
+            >
+              🗑️ {t('dbDeleteRow')}
+            </button>
+          )}
+          <div className={`my-1 border-t ${isDark ? 'border-gray-700' : 'border-gray-200'}`}></div>
+          <div className={`px-4 py-1 text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>{t('dbCopyColumn')}</div>
+          {tableData?.columns.slice(0, 8).map(col => (
+            <button
+              key={col}
+              onClick={() => copyCellValue(col)}
+              className={`w-full px-4 py-1.5 text-left text-xs font-mono truncate ${isDark ? 'hover:bg-gray-700 text-gray-300' : 'hover:bg-gray-100 text-gray-600'}`}
+            >
+              {col}: {contextMenu.row[col] === null ? <span className="italic">NULL</span> : String(contextMenu.row[col]).slice(0, 30)}
+            </button>
+          ))}
+          {tableData && tableData.columns.length > 8 && (
+            <div className={`px-4 py-1 text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
+              +{tableData.columns.length - 8} more columns...
+            </div>
+          )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+};
+
+export default DatabaseClient;
