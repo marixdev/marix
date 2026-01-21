@@ -31,7 +31,7 @@ All notable changes to Marix SSH Client will be documented in this file.
 - **Build System**: Added commit SHA injection for release transparency
   - `scripts/inject-build-info.js` generates build metadata at compile time
   - GitHub Actions workflow injects commit info into binaries
-  - Release notes now include build verification section
+  - Release notes now include build verification section   
 
 ## [1.0.10] - 2026-01-21
 
