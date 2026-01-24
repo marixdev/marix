@@ -14,11 +14,15 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue" alt="Platform">
+  <a href="https://github.com/marixdev/marix/actions/workflows/test.yml">
+    <img src="https://github.com/marixdev/marix/actions/workflows/test.yml/badge.svg?branch=main" alt="CI Status">
+  </a>
   <img src="https://img.shields.io/badge/license-GPL--3.0-blue" alt="License">
   <img src="https://img.shields.io/badge/client--side%20encryption-🔒-critical" alt="Client-Side Encryption">
-  <img src="https://img.shields.io/badge/version-1.0.8-orange" alt="Version">
+  <img src="https://img.shields.io/badge/version-1.0.14-orange" alt="Version">
 </p>
-![CI](https://github.com/marixdev/marix/actions/workflows/test.yml/badge.svg)
+
+
 <p align="center">
   <a href="https://marix.dev">🌐 Website</a> •
   <a href="#-download">Download</a> •
