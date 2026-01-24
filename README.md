@@ -18,7 +18,7 @@
   <img src="https://img.shields.io/badge/client--side%20encryption-🔒-critical" alt="Client-Side Encryption">
   <img src="https://img.shields.io/badge/version-1.0.8-orange" alt="Version">
 </p>
-
+![CI](https://github.com/marixdev/marix/actions/workflows/test.yml/badge.svg)
 <p align="center">
   <a href="https://marix.dev">🌐 Website</a> •
   <a href="#-download">Download</a> •
