@@ -19,7 +19,9 @@
   </a>
   <img src="https://img.shields.io/badge/license-GPL--3.0-blue" alt="License">
   <img src="https://img.shields.io/badge/client--side%20encryption-🔒-critical" alt="Client-Side Encryption">
-  <img src="https://img.shields.io/badge/version-1.0.14-orange" alt="Version">
+ <a href="https://github.com/marixdev/marix/releases/latest">
+  <img src="https://img.shields.io/github/v/release/marixdev/marix?color=orange&label=version" alt="Latest Version">
+</a>
 </p>
 
 
