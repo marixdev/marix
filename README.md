@@ -16,7 +16,7 @@
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue" alt="Platform">
   <img src="https://img.shields.io/badge/license-GPL--3.0-blue" alt="License">
   <img src="https://img.shields.io/badge/client--side%20encryption-🔒-critical" alt="Client-Side Encryption">
-  <img src="https://img.shields.io/badge/version-1.0.8-orange" alt="Version">
+  <img src="https://img.shields.io/badge/version-1.0.13-orange" alt="Version">
 </p>
 
 <p align="center">
