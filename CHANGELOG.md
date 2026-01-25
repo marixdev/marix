@@ -2,6 +2,21 @@
 
 All notable changes to Marix SSH Client will be documented in this file.
 
+## [1.0.15] - 2026-01-25
+
+### Added
+- **File/Folder Properties**: View detailed properties for files and folders in SFTP/FTP/FTPS
+  - Right-click context menu → Properties option
+  - Modal displays: name, type, location, size (with bytes), permissions (octal + rwx format)
+  - Shows modified, accessed, created timestamps
+  - Owner:Group information for remote files
+  - Source indicator (Local Computer or remote server)
+  - Full i18n support (all 14 languages)
+
+- **Terminal Right-Click Paste**: Paste clipboard content directly on right-click
+  - No context menu needed - instant paste on right-click
+  - Works with any text in clipboard
+
 ## [1.0.14] - 2026-01-24
 
 ### Added

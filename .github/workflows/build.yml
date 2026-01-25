@@ -118,6 +118,9 @@ jobs:
     if: success()
     permissions:
       contents: write
+    outputs:
+      version: ${{ steps.package-version.outputs.version }}
+      release_url: ${{ steps.create-release.outputs.url }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -159,6 +162,7 @@ jobs:
         run: ls -R artifacts
 
       - name: Create Release
+        id: create-release
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ steps.package-version.outputs.version }}
@@ -198,3 +202,173 @@ jobs:
             🔒 **[Security Documentation](https://github.com/${{ github.repository }}/blob/main/SECURITY.md)**
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ============================================
+  # DISCORD NOTIFICATION - Posts to Discord after release
+  # ============================================
+  notify-discord:
+    needs: [release]
+    runs-on: ubuntu-latest
+    if: success()
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Read CHANGELOG.md
+        id: changelog
+        run: |
+          VERSION="${{ needs.release.outputs.version }}"
+          
+          # Parse CHANGELOG.md to extract current version's changes
+          node << 'SCRIPT'
+          const fs = require('fs');
+          
+          const version = process.env.VERSION;
+          const changelog = fs.readFileSync('CHANGELOG.md', 'utf-8');
+          const lines = changelog.split('\n');
+          
+          let inCurrentVersion = false;
+          let currentSection = null;
+          const sections = { added: [], fixed: [], changed: [], security: [] };
+          
+          for (const line of lines) {
+            // Check for version header
+            if (line.match(/^##\s+\[/)) {
+              if (inCurrentVersion) break; // Stop at next version
+              if (line.includes(`[${version}]`)) {
+                inCurrentVersion = true;
+              }
+              continue;
+            }
+            
+            if (!inCurrentVersion) continue;
+            
+            // Detect section headers
+            if (line.match(/^###\s+Added/i)) currentSection = 'added';
+            else if (line.match(/^###\s+Fixed/i)) currentSection = 'fixed';
+            else if (line.match(/^###\s+Changed/i)) currentSection = 'changed';
+            else if (line.match(/^###\s+Security/i)) currentSection = 'security';
+            else if (currentSection && line.trim().startsWith('-')) {
+              // Clean up the line - remove markdown bold and file references
+              let cleaned = line.trim()
+                .replace(/\*\*([^*]+)\*\*/g, '$1')  // Remove bold
+                .substring(0, 100);  // Limit length
+              sections[currentSection].push(cleaned);
+            }
+          }
+          
+          // Format output (limit items per section)
+          const added = sections.added.slice(0, 5).join('\\n') || 'No new features';
+          const fixed = sections.fixed.slice(0, 3).join('\\n') || 'No bug fixes';
+          const changed = sections.changed.slice(0, 3).join('\\n') || 'No changes';
+          const security = sections.security.slice(0, 2).join('\\n') || 'No security updates';
+          
+          // Write to GITHUB_OUTPUT
+          const output = `added<<EOF\n${added}\nEOF\nfixed<<EOF\n${fixed}\nEOF\nchanged<<EOF\n${changed}\nEOF\nsecurity<<EOF\n${security}\nEOF\n`;
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, output);
+          SCRIPT
+        env:
+          VERSION: ${{ needs.release.outputs.version }}
+
+      - name: Post to Discord Announcements
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_ANNOUNCEMENTS }}
+          VERSION: ${{ needs.release.outputs.version }}
+        run: |
+          # Escape special characters for JSON
+          ADDED=$(echo '${{ steps.changelog.outputs.added }}' | sed 's/"/\\"/g' | sed ':a;N;$!ba;s/\n/\\n/g')
+          FIXED=$(echo '${{ steps.changelog.outputs.fixed }}' | sed 's/"/\\"/g' | sed ':a;N;$!ba;s/\n/\\n/g')
+          
+          curl -H "Content-Type: application/json" \
+            -X POST \
+            -d "{
+              \"embeds\": [{
+                \"title\": \"🎉 Marix v${VERSION} Released!\",
+                \"description\": \"A new version of Marix SSH Client is now available!\",
+                \"color\": 5814783,
+                \"fields\": [
+                  {
+                    \"name\": \"✨ What's New\",
+                    \"value\": \"${ADDED}\",
+                    \"inline\": false
+                  },
+                  {
+                    \"name\": \"🐛 Bug Fixes\",
+                    \"value\": \"${FIXED}\",
+                    \"inline\": false
+                  },
+                  {
+                    \"name\": \"📥 Downloads\",
+                    \"value\": \"🪟 [Windows](https://github.com/${{ github.repository }}/releases/download/${VERSION}/Marix.Setup.${VERSION}.exe)\\n🍎 [macOS Intel](https://github.com/${{ github.repository }}/releases/download/${VERSION}/Marix-${VERSION}-mac.zip)\\n🍎 [macOS ARM](https://github.com/${{ github.repository }}/releases/download/${VERSION}/Marix-${VERSION}-arm64-mac.zip)\\n🐧 [Linux AppImage](https://github.com/${{ github.repository }}/releases/download/${VERSION}/Marix-${VERSION}.AppImage)\\n🐧 [Linux DEB](https://github.com/${{ github.repository }}/releases/download/${VERSION}/marix_${VERSION}_amd64.deb)\\n🐧 [Linux RPM](https://github.com/${{ github.repository }}/releases/download/${VERSION}/marix-${VERSION}.x86_64.rpm)\",
+                    \"inline\": false
+                  }
+                ],
+                \"footer\": {
+                  \"text\": \"Marix - Your credentials never leave your device 🔐\"
+                },
+                \"timestamp\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",
+                \"url\": \"https://github.com/${{ github.repository }}/releases/tag/${VERSION}\"
+              }]
+            }" \
+            $DISCORD_WEBHOOK
+
+      - name: Post to Discord Changelog
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_CHANGELOG }}
+          VERSION: ${{ needs.release.outputs.version }}
+        run: |
+          ADDED=$(echo '${{ steps.changelog.outputs.added }}' | sed 's/"/\\"/g' | sed ':a;N;$!ba;s/\n/\\n/g')
+          FIXED=$(echo '${{ steps.changelog.outputs.fixed }}' | sed 's/"/\\"/g' | sed ':a;N;$!ba;s/\n/\\n/g')
+          CHANGED=$(echo '${{ steps.changelog.outputs.changed }}' | sed 's/"/\\"/g' | sed ':a;N;$!ba;s/\n/\\n/g')
+          SECURITY=$(echo '${{ steps.changelog.outputs.security }}' | sed 's/"/\\"/g' | sed ':a;N;$!ba;s/\n/\\n/g')
+          
+          curl -H "Content-Type: application/json" \
+            -X POST \
+            -d "{
+              \"embeds\": [{
+                \"title\": \"📦 Version ${VERSION}\",
+                \"description\": \"*Released: $(date -u '+%Y-%m-%d %H:%M UTC')*\",
+                \"color\": 3447003,
+                \"fields\": [
+                  {
+                    \"name\": \"✨ Added\",
+                    \"value\": \"${ADDED}\",
+                    \"inline\": false
+                  },
+                  {
+                    \"name\": \"🐛 Fixed\",
+                    \"value\": \"${FIXED}\",
+                    \"inline\": false
+                  },
+                  {
+                    \"name\": \"🔄 Changed\",
+                    \"value\": \"${CHANGED}\",
+                    \"inline\": false
+                  },
+                  {
+                    \"name\": \"🔒 Security\",
+                    \"value\": \"${SECURITY}\",
+                    \"inline\": false
+                  }
+                ],
+                \"footer\": {
+                  \"text\": \"View full changelog on GitHub\"
+                },
+                \"url\": \"https://github.com/${{ github.repository }}/releases/tag/${VERSION}\"
+              }]
+            }" \
+            $DISCORD_WEBHOOK
+
+      - name: Discord Notification Status
+        if: always()
+        run: |
+          if [ "${{ job.status }}" == "success" ]; then
+            echo "✅ Discord notifications sent successfully!"
+          else
+            echo "⚠️ Discord notification may have failed. Check webhook configuration."
+          fi

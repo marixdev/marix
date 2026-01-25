@@ -1091,5 +1091,21 @@
   "featureAppLock": "应用锁定",
   "featureThemes": "50+主题",
   "authorRole": "开发者与维护者",
-  "viewOnGithub": "在GitHub上查看"
+  "viewOnGithub": "在GitHub上查看",
+  "properties": "属性",
+  "type": "类型",
+  "location": "位置",
+  "size": "大小",
+  "permissions": "权限",
+  "modified": "修改时间",
+  "accessed": "访问时间",
+  "created": "创建时间",
+  "owner": "所有者",
+  "source": "来源",
+  "localComputer": "本地计算机",
+  "folder": "文件夹",
+  "symbolicLink": "符号链接",
+  "file": "文件",
+  "copy": "复制",
+  "paste": "粘贴"
 }

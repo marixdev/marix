@@ -1124,5 +1124,21 @@
   "featureAppLock": "Khóa ứng dụng",
   "featureThemes": "50+ Giao diện",
   "authorRole": "Nhà phát triển & Bảo trì",
-  "viewOnGithub": "Xem trên GitHub"
+  "viewOnGithub": "Xem trên GitHub",
+  "properties": "Thuộc tính",
+  "type": "Loại",
+  "location": "Vị trí",
+  "size": "Kích thước",
+  "permissions": "Quyền",
+  "modified": "Sửa đổi",
+  "accessed": "Truy cập",
+  "created": "Tạo",
+  "owner": "Chủ sở hữu",
+  "source": "Nguồn",
+  "localComputer": "Máy tính cục bộ",
+  "folder": "Thư mục",
+  "symbolicLink": "Liên kết tượng trưng",
+  "file": "Tệp",
+  "copy": "Sao chép",
+  "paste": "Dán"
 }

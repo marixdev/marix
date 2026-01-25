@@ -1109,5 +1109,21 @@
   "featureAppLock": "Kunci Aplikasi",
   "featureThemes": "50+ Tema",
   "authorRole": "Pembangun & Penyelenggara",
-  "viewOnGithub": "Lihat di GitHub"
+  "viewOnGithub": "Lihat di GitHub",
+  "properties": "Sifat",
+  "type": "Jenis",
+  "location": "Lokasi",
+  "size": "Saiz",
+  "permissions": "Kebenaran",
+  "modified": "Diubah",
+  "accessed": "Diakses",
+  "created": "Dicipta",
+  "owner": "Pemilik",
+  "source": "Sumber",
+  "localComputer": "Komputer Tempatan",
+  "folder": "Folder",
+  "symbolicLink": "Pautan Simbolik",
+  "file": "Fail",
+  "copy": "Salin",
+  "paste": "Tampal"
 }

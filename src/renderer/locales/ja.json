@@ -1116,5 +1116,21 @@
   "featureAppLock": "アプリロック",
   "featureThemes": "50以上のテーマ",
   "authorRole": "開発者＆メンテナー",
-  "viewOnGithub": "GitHubで見る"
+  "viewOnGithub": "GitHubで見る",
+  "properties": "プロパティ",
+  "type": "種類",
+  "location": "場所",
+  "size": "サイズ",
+  "permissions": "アクセス権",
+  "modified": "更新日時",
+  "accessed": "アクセス日時",
+  "created": "作成日時",
+  "owner": "所有者",
+  "source": "ソース",
+  "localComputer": "ローカルコンピュータ",
+  "folder": "フォルダ",
+  "symbolicLink": "シンボリックリンク",
+  "file": "ファイル",
+  "copy": "コピー",
+  "paste": "貼り付け"
 }

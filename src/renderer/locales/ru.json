@@ -1109,5 +1109,21 @@
   "featureAppLock": "Блокировка приложения",
   "featureThemes": "50+ Тем",
   "authorRole": "Разработчик и сопровождающий",
-  "viewOnGithub": "Смотреть на GitHub"
+  "viewOnGithub": "Смотреть на GitHub",
+  "properties": "Свойства",
+  "type": "Тип",
+  "location": "Расположение",
+  "size": "Размер",
+  "permissions": "Разрешения",
+  "modified": "Изменено",
+  "accessed": "Доступ",
+  "created": "Создано",
+  "owner": "Владелец",
+  "source": "Источник",
+  "localComputer": "Локальный компьютер",
+  "folder": "Папка",
+  "symbolicLink": "Символическая ссылка",
+  "file": "Файл",
+  "copy": "Копировать",
+  "paste": "Вставить"
 }

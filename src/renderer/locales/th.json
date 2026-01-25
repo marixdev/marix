@@ -1109,5 +1109,21 @@
   "featureAppLock": "ล็อคแอป",
   "featureThemes": "50+ ธีม",
   "authorRole": "นักพัฒนาและผู้ดูแล",
-  "viewOnGithub": "ดูบน GitHub"
+  "viewOnGithub": "ดูบน GitHub",
+  "properties": "คุณสมบัติ",
+  "type": "ประเภท",
+  "location": "ตำแหน่ง",
+  "size": "ขนาด",
+  "permissions": "สิทธิ์",
+  "modified": "แก้ไข",
+  "accessed": "เข้าถึง",
+  "created": "สร้าง",
+  "owner": "เจ้าของ",
+  "source": "แหล่งที่มา",
+  "localComputer": "คอมพิวเตอร์ภายใน",
+  "folder": "โฟลเดอร์",
+  "symbolicLink": "ลิงก์สัญลักษณ์",
+  "file": "ไฟล์",
+  "copy": "คัดลอก",
+  "paste": "วาง"
 }

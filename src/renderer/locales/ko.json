@@ -1109,5 +1109,21 @@
   "featureAppLock": "앱 잠금",
   "featureThemes": "50개 이상의 테마",
   "authorRole": "개발자 & 유지관리자",
-  "viewOnGithub": "GitHub에서 보기"
+  "viewOnGithub": "GitHub에서 보기",
+  "properties": "속성",
+  "type": "유형",
+  "location": "위치",
+  "size": "크기",
+  "permissions": "권한",
+  "modified": "수정됨",
+  "accessed": "액세스됨",
+  "created": "생성됨",
+  "owner": "소유자",
+  "source": "소스",
+  "localComputer": "로컬 컴퓨터",
+  "folder": "폴더",
+  "symbolicLink": "심볼릭 링크",
+  "file": "파일",
+  "copy": "복사",
+  "paste": "붙여넣기"
 }

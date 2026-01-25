@@ -1109,5 +1109,21 @@
   "featureAppLock": "Verrouillage app",
   "featureThemes": "50+ Thèmes",
   "authorRole": "Développeur & Mainteneur",
-  "viewOnGithub": "Voir sur GitHub"
+  "viewOnGithub": "Voir sur GitHub",
+  "properties": "Propriétés",
+  "type": "Type",
+  "location": "Emplacement",
+  "size": "Taille",
+  "permissions": "Permissions",
+  "modified": "Modifié",
+  "accessed": "Accédé",
+  "created": "Créé",
+  "owner": "Propriétaire",
+  "source": "Source",
+  "localComputer": "Ordinateur Local",
+  "folder": "Dossier",
+  "symbolicLink": "Lien Symbolique",
+  "file": "Fichier",
+  "copy": "Copier",
+  "paste": "Coller"
 }

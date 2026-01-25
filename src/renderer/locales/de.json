@@ -1109,5 +1109,21 @@
   "featureAppLock": "App-Sperre",
   "featureThemes": "50+ Themes",
   "authorRole": "Entwickler & Betreuer",
-  "viewOnGithub": "Auf GitHub ansehen"
+  "viewOnGithub": "Auf GitHub ansehen",
+  "properties": "Eigenschaften",
+  "type": "Typ",
+  "location": "Speicherort",
+  "size": "Größe",
+  "permissions": "Berechtigungen",
+  "modified": "Geändert",
+  "accessed": "Zugegriffen",
+  "created": "Erstellt",
+  "owner": "Besitzer",
+  "source": "Quelle",
+  "localComputer": "Lokaler Computer",
+  "folder": "Ordner",
+  "symbolicLink": "Symbolischer Link",
+  "file": "Datei",
+  "copy": "Kopieren",
+  "paste": "Einfügen"
 }

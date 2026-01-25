@@ -14,17 +14,23 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue" alt="Platform">
+  <a href="https://github.com/marixdev/marix/actions/workflows/test.yml">
+    <img src="https://github.com/marixdev/marix/actions/workflows/test.yml/badge.svg?branch=main" alt="CI Status">
+  </a>
   <img src="https://img.shields.io/badge/license-GPL--3.0-blue" alt="License">
   <img src="https://img.shields.io/badge/client--side%20encryption-🔒-critical" alt="Client-Side Encryption">
-  <img src="https://img.shields.io/badge/version-1.0.7-orange" alt="Version">
+ <a href="https://github.com/marixdev/marix/releases/latest">
+  <img src="https://img.shields.io/github/v/release/marixdev/marix?color=orange&label=version" alt="Latest Version">
+</a>
 </p>
 
 <p align="center">
   <a href="https://marix.dev">🌐 Website</a> •
-  <a href="#-tải-xuống">📥 다운로드</a> •
-  <a href="#-tính-năng">✨ 기능</a> •
-  <a href="#-thông-số-bảo-mật">🛡️ Bảo mật</a> •
-  <a href="#-ngôn-ngữ-khác">🌍 Ngôn ngữ</a>
+  <a href="https://discord.gg/KSenHkCtN6">💬 Discord</a> •
+  <a href="#-다운로드">📥 다운로드</a> •
+  <a href="#-기능">✨ 기능</a> •
+  <a href="#-보안-사양">🛡️ 보안</a> •
+  <a href="#-다른-언어">🌍 언어</a>
 </p>
 
 ---

@@ -90,6 +90,26 @@ const XTermTerminal: React.FC<Props> = ({ connectionId, theme = 'Dracula', serve
     console.log('[XTermTerminal] Save as snippet requested:', command);
   }, []);
 
+  // Handle right-click to paste directly
+  const handleRightClickPaste = useCallback(async (e: React.MouseEvent) => {
+    e.preventDefault();
+    try {
+      const text = await navigator.clipboard.readText();
+      if (text && instanceRef.current?.isReady) {
+        ipcRenderer.invoke('ssh:writeShell', connectionId, text);
+        // Update input buffer with pasted text
+        for (const char of text) {
+          if (char.charCodeAt(0) >= 32 && char !== '\n' && char !== '\r') {
+            inputBufferRef.current += char;
+          }
+        }
+        instanceRef.current.xterm.focus();
+      }
+    } catch (err) {
+      console.error('[XTermTerminal] Paste error:', err);
+    }
+  }, [connectionId]);
+
   // Get background color from theme
   useEffect(() => {
     const themeData = getThemeSync(theme);
@@ -322,6 +342,7 @@ const XTermTerminal: React.FC<Props> = ({ connectionId, theme = 'Dracula', serve
       <div 
         ref={wrapperRef}
         className="flex-1 h-full p-2 min-w-0"
+        onContextMenu={handleRightClickPaste}
       >
         <div 
           ref={containerRef} 

@@ -1304,6 +1304,18 @@ export interface Translations {
   // Author
   authorRole: string;
   viewOnGithub: string;
+  
+  // Properties modal
+  properties: string;
+  location: string;
+  symbolicLink: string;
+  localComputer: string;
+  size: string;
+  modified: string;
+  accessed: string;
+  source: string;
+  folder: string;
+  file: string;
 }
 
 interface LanguageContextType {

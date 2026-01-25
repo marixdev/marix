@@ -90,6 +90,21 @@ const DualPaneSFTP: React.FC<Props> = ({ connectionId, server, initialLocalPath,
   // Delete progress state
   const [deleteProgress, setDeleteProgress] = useState<{ deleting: boolean; currentItem: string; count: number } | null>(null);
 
+  // Properties modal state
+  const [propertiesModal, setPropertiesModal] = useState<{
+    open: boolean;
+    file: FileInfo | null;
+    type: 'local' | 'remote';
+    fullPath: string;
+    extraInfo?: {
+      owner?: string;
+      group?: string;
+      linkTarget?: string;
+      created?: number;
+      accessed?: number;
+    };
+  }>({ open: false, file: null, type: 'local', fullPath: '' });
+
   // Toast notification state
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'info' | 'error' } | null>(null);
 
@@ -1191,6 +1206,51 @@ const DualPaneSFTP: React.FC<Props> = ({ connectionId, server, initialLocalPath,
     setContextMenu({ x, y, type, file });
   };
 
+  // Show file/folder properties
+  const showProperties = async (file: FileInfo, type: 'local' | 'remote') => {
+    const basePath = type === 'local' ? localPath : remotePath;
+    const fullPath = type === 'local' 
+      ? await ipcRenderer.invoke('local:pathJoin', basePath, file.name)
+      : (basePath === '/' ? `/${file.name}` : `${basePath}/${file.name}`);
+    
+    let extraInfo: typeof propertiesModal.extraInfo = {};
+    
+    try {
+      if (type === 'remote') {
+        // Get additional info for remote files via SFTP stat
+        const stats = await ipcRenderer.invoke('sftp:stat', connectionId, fullPath);
+        if (stats) {
+          extraInfo = {
+            owner: stats.uid?.toString(),
+            group: stats.gid?.toString(),
+            accessed: stats.atime,
+          };
+        }
+      } else {
+        // Get additional info for local files
+        const stats = await ipcRenderer.invoke('local:stat', fullPath);
+        if (stats) {
+          extraInfo = {
+            owner: stats.uid?.toString(),
+            group: stats.gid?.toString(),
+            created: stats.birthtime,
+            accessed: stats.atime,
+          };
+        }
+      }
+    } catch (err) {
+      console.warn('Could not get extra file info:', err);
+    }
+    
+    setPropertiesModal({
+      open: true,
+      file,
+      type,
+      fullPath,
+      extraInfo,
+    });
+  };
+
   // Drag & drop handlers
   const handleDragStart = (e: React.DragEvent, fileName: string, from: 'local' | 'remote', isDirectory: boolean) => {
     setDraggingFile({ name: fileName, from, isDirectory });
@@ -1299,6 +1359,20 @@ const DualPaneSFTP: React.FC<Props> = ({ connectionId, server, initialLocalPath,
     const perms = mode & 0o777;
     const octal = perms.toString(8).padStart(3, '0');
     return octal;
+  };
+
+  // Format permissions to rwx string (e.g., rwxr-xr-x)
+  const formatPermissionsRwx = (mode: number): string => {
+    const perms = mode & 0o777;
+    const chars = ['r', 'w', 'x'];
+    let result = '';
+    for (let i = 2; i >= 0; i--) {
+      const segment = (perms >> (i * 3)) & 0o7;
+      for (let j = 2; j >= 0; j--) {
+        result += (segment >> j) & 1 ? chars[2 - j] : '-';
+      }
+    }
+    return result;
   };
 
   const formatDate = (timestamp: number) => {
@@ -1833,6 +1907,7 @@ const DualPaneSFTP: React.FC<Props> = ({ connectionId, server, initialLocalPath,
                   <div className="border-t border-navy-600 my-1"></div>
                   <MenuItem icon="chmod" onClick={() => { chmodLocal(contextMenu.file!.name); setContextMenu(null); }}>{t('sftpChangePermissions')}</MenuItem>
                   <MenuItem icon="rename" onClick={() => { renameLocal(contextMenu.file!.name); setContextMenu(null); }}>{t('rename')}</MenuItem>
+                  <MenuItem icon="properties" onClick={() => { showProperties(contextMenu.file!, 'local'); setContextMenu(null); }}>{t('properties')}</MenuItem>
                   <div className="border-t border-navy-600 my-1"></div>
                   <MenuItem icon="delete" danger onClick={() => { deleteLocal(contextMenu.file!.name); setContextMenu(null); }}>{t('delete')}</MenuItem>
                 </>
@@ -1888,6 +1963,7 @@ const DualPaneSFTP: React.FC<Props> = ({ connectionId, server, initialLocalPath,
                   <div className="border-t border-navy-600 my-1"></div>
                   <MenuItem icon="chmod" onClick={() => { chmodRemote(contextMenu.file!.name); setContextMenu(null); }}>{t('sftpChangePermissions')}</MenuItem>
                   <MenuItem icon="rename" onClick={() => { renameRemote(contextMenu.file!.name); setContextMenu(null); }}>{t('rename')}</MenuItem>
+                  <MenuItem icon="properties" onClick={() => { showProperties(contextMenu.file!, 'remote'); setContextMenu(null); }}>{t('properties')}</MenuItem>
                   <div className="border-t border-navy-600 my-1"></div>
                   <MenuItem icon="delete" danger onClick={() => { deleteRemote(contextMenu.file!.name); setContextMenu(null); }}>{t('delete')}</MenuItem>
                 </>
@@ -1979,6 +2055,120 @@ const DualPaneSFTP: React.FC<Props> = ({ connectionId, server, initialLocalPath,
           loadRemoteFiles(remotePath);
         }}
       />
+
+      {/* Properties Modal */}
+      {propertiesModal.open && propertiesModal.file && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setPropertiesModal({ ...propertiesModal, open: false })}>
+          <div className="bg-navy-800 rounded-lg shadow-xl border border-navy-600 w-[400px] max-w-[90vw]" onClick={(e) => e.stopPropagation()}>
+            {/* Header */}
+            <div className="flex items-center gap-3 p-4 border-b border-navy-600">
+              {propertiesModal.file.type === 'directory' ? (
+                <svg className="w-10 h-10 text-yellow-500" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M10 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/>
+                </svg>
+              ) : (
+                <svg className="w-10 h-10 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+              )}
+              <div>
+                <h3 className="text-white font-medium text-lg">{propertiesModal.file.name}</h3>
+                <p className="text-gray-400 text-sm">{t('properties')}</p>
+              </div>
+            </div>
+            
+            {/* Content */}
+            <div className="p-4 space-y-3 text-sm">
+              <div className="grid grid-cols-[120px_1fr] gap-2">
+                <span className="text-gray-400">{t('type')}:</span>
+                <span className="text-white">
+                  {propertiesModal.file.type === 'directory' ? t('folder') : 
+                   propertiesModal.file.type === 'symlink' ? t('symbolicLink') : t('file')}
+                </span>
+              </div>
+              
+              <div className="grid grid-cols-[120px_1fr] gap-2">
+                <span className="text-gray-400">{t('location')}:</span>
+                <span className="text-white break-all font-mono text-xs">{propertiesModal.fullPath}</span>
+              </div>
+              
+              <div className="grid grid-cols-[120px_1fr] gap-2">
+                <span className="text-gray-400">{t('size')}:</span>
+                <span className="text-white">
+                  {formatBytes(propertiesModal.file.size)}
+                  {propertiesModal.file.size > 1024 && (
+                    <span className="text-gray-500 ml-2">({propertiesModal.file.size.toLocaleString()} bytes)</span>
+                  )}
+                </span>
+              </div>
+              
+              {propertiesModal.file.permissions !== undefined && (
+                <div className="grid grid-cols-[120px_1fr] gap-2">
+                  <span className="text-gray-400">{t('permissions')}:</span>
+                  <span className="text-white font-mono">
+                    {(propertiesModal.file.permissions & 0o777).toString(8).padStart(3, '0')}
+                    <span className="text-gray-500 ml-2">
+                      ({formatPermissionsRwx(propertiesModal.file.permissions)})
+                    </span>
+                  </span>
+                </div>
+              )}
+              
+              <div className="grid grid-cols-[120px_1fr] gap-2">
+                <span className="text-gray-400">{t('modified')}:</span>
+                <span className="text-white">
+                  {new Date(propertiesModal.file.modifyTime * 1000).toLocaleString()}
+                </span>
+              </div>
+              
+              {propertiesModal.extraInfo?.accessed && (
+                <div className="grid grid-cols-[120px_1fr] gap-2">
+                  <span className="text-gray-400">{t('accessed')}:</span>
+                  <span className="text-white">
+                    {new Date(propertiesModal.extraInfo.accessed * 1000).toLocaleString()}
+                  </span>
+                </div>
+              )}
+              
+              {propertiesModal.extraInfo?.created && (
+                <div className="grid grid-cols-[120px_1fr] gap-2">
+                  <span className="text-gray-400">{t('created')}:</span>
+                  <span className="text-white">
+                    {new Date(propertiesModal.extraInfo.created).toLocaleString()}
+                  </span>
+                </div>
+              )}
+              
+              {propertiesModal.extraInfo?.owner && (
+                <div className="grid grid-cols-[120px_1fr] gap-2">
+                  <span className="text-gray-400">{t('owner')}:</span>
+                  <span className="text-white font-mono">
+                    {propertiesModal.extraInfo.owner}
+                    {propertiesModal.extraInfo?.group && `:${propertiesModal.extraInfo.group}`}
+                  </span>
+                </div>
+              )}
+              
+              <div className="grid grid-cols-[120px_1fr] gap-2">
+                <span className="text-gray-400">{t('source')}:</span>
+                <span className="text-white">
+                  {propertiesModal.type === 'local' ? t('localComputer') : `${server.username}@${server.host}`}
+                </span>
+              </div>
+            </div>
+            
+            {/* Footer */}
+            <div className="flex justify-end p-4 border-t border-navy-600">
+              <button
+                onClick={() => setPropertiesModal({ ...propertiesModal, open: false })}
+                className="px-4 py-2 bg-navy-700 hover:bg-navy-600 text-white rounded transition"
+              >
+                {t('close')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -2002,6 +2192,7 @@ const iconMap: Record<string, React.ReactNode> = {
   'cut': <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.121 14.121L19 19m-7-7l7-7m-7 7l-2.879 2.879M12 12L9.121 9.121m0 5.758a3 3 0 10-4.243 4.243 3 3 0 004.243-4.243zm0-5.758a3 3 0 10-4.243-4.243 3 3 0 004.243 4.243z" /></svg>,
   'paste': <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg>,
   'chevron-right': <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>,
+  'properties': <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>,
 };
 
 const MenuItem: React.FC<{ icon: string; onClick: () => void; danger?: boolean; disabled?: boolean; children: React.ReactNode }> = ({ icon, onClick, danger, disabled, children }) => {

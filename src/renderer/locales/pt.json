@@ -1109,5 +1109,21 @@
   "featureAppLock": "Bloqueio de app",
   "featureThemes": "50+ Temas",
   "authorRole": "Desenvolvedor & Mantenedor",
-  "viewOnGithub": "Ver no GitHub"
+  "viewOnGithub": "Ver no GitHub",
+  "properties": "Propriedades",
+  "type": "Tipo",
+  "location": "Localização",
+  "size": "Tamanho",
+  "permissions": "Permissões",
+  "modified": "Modificado",
+  "accessed": "Acessado",
+  "created": "Criado",
+  "owner": "Proprietário",
+  "source": "Fonte",
+  "localComputer": "Computador Local",
+  "folder": "Pasta",
+  "symbolicLink": "Link Simbólico",
+  "file": "Arquivo",
+  "copy": "Copiar",
+  "paste": "Colar"
 }

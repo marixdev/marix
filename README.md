@@ -27,6 +27,7 @@
 
 <p align="center">
   <a href="https://marix.dev">🌐 Website</a> •
+  <a href="https://discord.gg/KSenHkCtN6">💬 Discord</a> •
   <a href="#-download">Download</a> •
   <a href="#-features">Features</a> •
   <a href="#-security">Security</a> •

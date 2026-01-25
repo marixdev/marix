@@ -1109,5 +1109,21 @@
   "featureAppLock": "App Lock",
   "featureThemes": "50+ Themes",
   "authorRole": "Developer & Maintainer",
-  "viewOnGithub": "Tingnan sa GitHub"
+  "viewOnGithub": "Tingnan sa GitHub",
+  "properties": "Mga Katangian",
+  "type": "Uri",
+  "location": "Lokasyon",
+  "size": "Laki",
+  "permissions": "Mga Pahintulot",
+  "modified": "Binago",
+  "accessed": "Na-access",
+  "created": "Ginawa",
+  "owner": "May-ari",
+  "source": "Pinagmulan",
+  "localComputer": "Lokal na Computer",
+  "folder": "Folder",
+  "symbolicLink": "Symbolic Link",
+  "file": "File",
+  "copy": "Kopyahin",
+  "paste": "I-paste"
 }

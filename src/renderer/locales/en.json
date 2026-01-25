@@ -1140,5 +1140,21 @@
   "featureAppLock": "App Lock",
   "featureThemes": "50+ Themes",
   "authorRole": "Developer & Maintainer",
-  "viewOnGithub": "View on GitHub"
+  "viewOnGithub": "View on GitHub",
+  "properties": "Properties",
+  "type": "Type",
+  "location": "Location",
+  "size": "Size",
+  "permissions": "Permissions",
+  "modified": "Modified",
+  "accessed": "Accessed",
+  "created": "Created",
+  "owner": "Owner",
+  "source": "Source",
+  "localComputer": "Local Computer",
+  "folder": "Folder",
+  "symbolicLink": "Symbolic Link",
+  "file": "File",
+  "copy": "Copy",
+  "paste": "Paste"
 }
