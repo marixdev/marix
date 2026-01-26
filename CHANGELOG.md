@@ -2,6 +2,38 @@
 
 All notable changes to Marix SSH Client will be documented in this file.
 
+## [1.0.16] - 2026-01-26
+
+### Added
+- **Modern OAuth Callback UI**: Beautiful glassmorphism design for OAuth success page
+  - Animated checkmark with service-specific gradient colors
+  - Keyboard shortcut hint (Ctrl+W) to close tab
+  - Works for Google Drive, Box, GitLab
+
+- **Random Port OAuth**: OAuth callback server uses random available ports
+  - Uses 127.0.0.1 (RFC 8252) for GitLab compatibility with any port
+  - No more port conflicts during authentication
+
+### Fixed
+- **Auto Update Check**: Fixed auto-update notification on app startup
+  - Now properly checks for updates every time app opens
+  - Update button in notification toast now correctly opens browser
+  - Fixed `window.electron.shell.openExternal` not working
+
+- **OAuth Port Race Condition**: Fixed port showing as 0 in callback URL
+  - Separated `startServer()` and `start()` methods
+  - Server port is now correctly assigned before building auth URL
+
+### Security
+- **PKCE Implementation**: All OAuth services now use PKCE (S256)
+  - Google Drive: PKCE + client_secret (required for Desktop apps)
+  - Box: PKCE + client_secret
+  - GitLab: PKCE only (no client_secret needed)
+
+- **Credential Protection**: OAuth credentials protected via GitHub Secrets
+  - Build-time injection for CI/CD
+  - Local development uses gitignored credential files
+
 ## [1.0.15] - 2026-01-25
 
 ### Added

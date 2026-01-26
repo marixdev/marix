@@ -59,17 +59,15 @@
 4. Đặt tên: `Marix Desktop Client`
 5. Click **"Create"**
 
-6. **Download file JSON**: Click icon download ở credentials vừa tạo
-   - File sẽ có tên dạng: `client_secret_xxx.apps.googleusercontent.com.json`
-   - Lưu file này vào `src/main/services/` với tên `google-credentials.json`
+6. **Sao chép Client ID**: Nhấp vào biểu tượng sao chép để lấy Client ID
+   - Bạn chỉ cần `client_id` - không cần client secret (sử dụng PKCE)
+   - Tạo file `google-credentials.json` trong `src/main/services/`
 
-7. **Lưu Client ID và Client Secret**:
+7. **Lưu Client ID** (client_secret KHÔNG cần thiết với PKCE):
 ```json
 {
   "installed": {
-    "client_id": "YOUR_CLIENT_ID.apps.googleusercontent.com",
-    "client_secret": "YOUR_CLIENT_SECRET",
-    "redirect_uris": ["http://localhost"]
+    "client_id": "YOUR_CLIENT_ID.apps.googleusercontent.com"
   }
 }
 ```
@@ -97,18 +95,18 @@ src/main/services/google-credentials.json
 ## Lưu Ý Bảo Mật
 
 - **KHÔNG** commit file `google-credentials.json` lên Git
-- Client Secret nên được mã hóa hoặc obfuscate trong production
 - Refresh token được lưu trong Electron store (đã mã hóa)
 - Chỉ yêu cầu quyền tối thiểu cần thiết
+- PKCE được sử dụng cho OAuth flow an toàn (không cần client secret)
 
-## Công Khai Ứng Dụng (Tùy chọn)
+## Công Khai Ứng Dụng (Bắt buộc)
 
-Khi muốn công khai app:
+Để cho phép tất cả người dùng sử dụng ứng dụng:
 
 1. Vào **OAuth consent screen**
 2. Click **"Publish App"**
-3. Google sẽ review ứng dụng của bạn (1-2 tuần)
-4. Sau khi được phê duyệt, mọi người có thể dùng mà không bị cảnh báo "unverified app"
+3. Ứng dụng của bạn sẽ được duyệt ngay lập tức
+4. Mọi người có thể dùng mà không bị cảnh báo "unverified app"
 
 ## Xử Lý Sự Cố
 

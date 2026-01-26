@@ -59,17 +59,15 @@
 4. Name it: `Marix Desktop Client`
 5. Click **"Create"**
 
-6. **Download JSON file**: Click the download icon on the credentials you just created
-   - File will be named like: `client_secret_xxx.apps.googleusercontent.com.json`
-   - Save this file to `src/main/services/` with the name `google-credentials.json`
+6. **Copy Client ID**: Click the copy icon to copy your Client ID
+   - You only need the `client_id` - no client secret required (using PKCE)
+   - Create file `google-credentials.json` in `src/main/services/`
 
-7. **Save Client ID and Client Secret**:
+7. **Save Client ID** (client_secret is NOT required with PKCE):
 ```json
 {
   "installed": {
-    "client_id": "YOUR_CLIENT_ID.apps.googleusercontent.com",
-    "client_secret": "YOUR_CLIENT_SECRET",
-    "redirect_uris": ["http://localhost"]
+    "client_id": "YOUR_CLIENT_ID.apps.googleusercontent.com"
   }
 }
 ```
@@ -97,18 +95,18 @@ src/main/services/google-credentials.json
 ## Nota keselamatan
 
 - **DO NOT** commit `google-credentials.json` to Git
-- Client Secret should be encrypted or obfuscated in production
 - Refresh tokens are stored in Electron store (encrypted)
 - Only request minimal necessary permissions
+- PKCE is used for secure OAuth flow (no client secret needed)
 
-## Terbitkan aplikasi (Pilihan)
+## Terbitkan aplikasi (Diperlukan)
 
-When you want to make your app public:
+Untuk membenarkan semua pengguna menggunakan app:
 
 1. Go to **OAuth consent screen**
 2. Click **"Publish App"**
-3. Google will review your app (1-2 weeks)
-4. After approval, anyone can use it without "unverified app" warnings
+3. App anda akan diluluskan serta-merta
+4. Sesiapa sahaja boleh menggunakannya tanpa "unverified app" warnings
 
 ## Penyelesaian masalah
 

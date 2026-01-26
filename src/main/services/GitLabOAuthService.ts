@@ -1,7 +1,7 @@
 import { BrowserWindow, shell, safeStorage } from 'electron';
 import { randomBytes, createHash } from 'crypto';
 import * as https from 'https';
-import * as http from 'http';
+import { GitLabOAuthServer, OAuthCallbackServer } from './OAuthCallbackServer';
 
 interface GitLabTokens {
   access_token: string;
@@ -17,13 +17,13 @@ interface PKCEChallenge {
 
 export class GitLabOAuthService {
   private static CLIENT_ID = 'e9b3e0079b96858eaa49ff567f07a9377f975b503b8b8bc1ea90218928e28974';
-  private static REDIRECT_URI = 'http://localhost:43823/callback';
   private static GITLAB_AUTH_URL = 'https://gitlab.com/oauth/authorize';
   private static GITLAB_TOKEN_URL = 'https://gitlab.com/oauth/token';
   
   private static currentChallenge: PKCEChallenge | null = null;
+  private static currentRedirectUri: string | null = null;
   private static authWindow: BrowserWindow | null = null;
-  private static callbackServer: http.Server | null = null;
+  private static callbackServer: OAuthCallbackServer | null = null;
 
   /**
    * Generate PKCE code verifier and challenge
@@ -43,167 +43,45 @@ export class GitLabOAuthService {
    * Start OAuth flow with PKCE
    */
   static async startOAuthFlow(parentWindow?: BrowserWindow): Promise<GitLabTokens> {
-    return new Promise((resolve, reject) => {
-      try {
-        // Generate PKCE challenge
-        this.currentChallenge = this.generatePKCE();
-        
-        // Start local HTTP server to listen for callback
-        this.startCallbackServer(resolve, reject);
-        
-        // Build authorization URL
-        const authUrl = new URL(this.GITLAB_AUTH_URL);
-        authUrl.searchParams.set('client_id', this.CLIENT_ID);
-        authUrl.searchParams.set('redirect_uri', this.REDIRECT_URI);
-        authUrl.searchParams.set('response_type', 'code');
-        authUrl.searchParams.set('code_challenge', this.currentChallenge.challenge);
-        authUrl.searchParams.set('code_challenge_method', 'S256');
-        authUrl.searchParams.set('scope', 'api');
-        
-        console.log('[GitLab OAuth] Opening authorization URL:', authUrl.toString());
-        
-        // Open in external browser
-        shell.openExternal(authUrl.toString());
-        
-        // Set timeout for OAuth flow (5 minutes)
-        const timeout = setTimeout(() => {
-          this.cleanup();
-          reject(new Error('OAuth flow timed out'));
-        }, 5 * 60 * 1000);
-        
-        // Store resolver for callback
-        (global as any).gitlabOAuthResolver = async (code: string) => {
-          clearTimeout(timeout);
-          try {
-            const tokens = await this.exchangeCodeForToken(code);
-            this.cleanup();
-            resolve(tokens);
-          } catch (err) {
-            this.cleanup();
-            reject(err);
-          }
-        };
-        
-      } catch (err) {
-        this.cleanup();
-        reject(err);
-      }
-    });
-  }
-
-  /**
-   * Start local HTTP server to listen for OAuth callback
-   */
-  private static startCallbackServer(
-    resolve: (tokens: GitLabTokens) => void,
-    reject: (error: Error) => void
-  ): void {
-    this.callbackServer = http.createServer(async (req, res) => {
-      const url = new URL(req.url || '', `http://localhost:43823`);
-      
-      if (url.pathname === '/callback') {
-        const code = url.searchParams.get('code');
-        const error = url.searchParams.get('error');
-        
-        // Send response to browser
-        res.writeHead(200, { 'Content-Type': 'text/html' });
-        if (code) {
-          res.end(`
-            <html>
-              <body style="font-family: sans-serif; text-align: center; padding: 50px;">
-                <h1 style="color: #10b981;">✓ Authentication Successful!</h1>
-                <p>You can close this window and return to Marix.</p>
-                <script>window.close();</script>
-              </body>
-            </html>
-          `);
-        } else {
-          res.end(`
-            <html>
-              <body style="font-family: sans-serif; text-align: center; padding: 50px;">
-                <h1 style="color: #ef4444;">✗ Authentication Failed</h1>
-                <p>${error || 'Unknown error'}</p>
-                <p>You can close this window.</p>
-              </body>
-            </html>
-          `);
-        }
-        
-        // Close server after response
-        this.callbackServer?.close();
-        this.callbackServer = null;
-        
-        // Process the callback
-        if (error) {
-          console.error('[GitLab OAuth] Error from GitLab:', error);
-          this.cleanup();
-          reject(new Error(error));
-          return;
-        }
-        
-        if (code) {
-          console.log('[GitLab OAuth] Received authorization code');
-          try {
-            const tokens = await this.exchangeCodeForToken(code);
-            this.cleanup();
-            resolve(tokens);
-          } catch (err) {
-            this.cleanup();
-            reject(err as Error);
-          }
-        }
-      }
-    });
-    
-    this.callbackServer.listen(43823, () => {
-      console.log('[GitLab OAuth] Callback server listening on http://localhost:43823');
-    });
-    
-    this.callbackServer.on('error', (err: any) => {
-      if (err.code === 'EADDRINUSE') {
-        console.error('[GitLab OAuth] Port 43823 is already in use');
-        reject(new Error('Callback server port is already in use. Please try again.'));
-      } else {
-        reject(err);
-      }
-    });
-  }
-
-  /**
-   * Handle OAuth callback with authorization code (legacy protocol handler)
-   */
-  static handleCallback(url: string): void {
     try {
-      const urlObj = new URL(url);
-      const code = urlObj.searchParams.get('code');
-      const error = urlObj.searchParams.get('error');
+      // Generate PKCE challenge
+      this.currentChallenge = this.generatePKCE();
       
-      if (error) {
-        console.error('[GitLab OAuth] Error from GitLab:', error);
-        if ((global as any).gitlabOAuthResolver) {
-          const resolver = (global as any).gitlabOAuthResolver;
-          delete (global as any).gitlabOAuthResolver;
-          resolver(null);
-        }
-        return;
-      }
+      // Create callback server with random port
+      this.callbackServer = GitLabOAuthServer();
       
-      if (code && (global as any).gitlabOAuthResolver) {
-        console.log('[GitLab OAuth] Received authorization code');
-        (global as any).gitlabOAuthResolver(code);
-      }
-    } catch (err) {
-      console.error('[GitLab OAuth] Error handling callback:', err);
-    }
-  }
-
-  /**
-   * Handle manual code input (fallback when protocol handler doesn't work)
-   */
-  static handleManualCode(code: string): void {
-    console.log('[GitLab OAuth] Received manual code');
-    if ((global as any).gitlabOAuthResolver) {
-      (global as any).gitlabOAuthResolver(code);
+      // Start server and wait for port assignment
+      await this.callbackServer.startServer();
+      
+      // Get the callback URL with the assigned port
+      this.currentRedirectUri = this.callbackServer.getCallbackUrl();
+      console.log('[GitLab OAuth] Using callback URL:', this.currentRedirectUri);
+      
+      // Build authorization URL
+      const authUrl = new URL(this.GITLAB_AUTH_URL);
+      authUrl.searchParams.set('client_id', this.CLIENT_ID);
+      authUrl.searchParams.set('redirect_uri', this.currentRedirectUri);
+      authUrl.searchParams.set('response_type', 'code');
+      authUrl.searchParams.set('code_challenge', this.currentChallenge.challenge);
+      authUrl.searchParams.set('code_challenge_method', 'S256');
+      authUrl.searchParams.set('scope', 'api');
+      
+      console.log('[GitLab OAuth] Opening authorization URL');
+      
+      // Open in external browser
+      await shell.openExternal(authUrl.toString());
+      
+      // Wait for authorization code
+      const { code } = await this.callbackServer.start();
+      
+      // Exchange code for tokens
+      const tokens = await this.exchangeCodeForToken(code);
+      this.cleanup();
+      
+      return tokens;
+    } catch (error) {
+      this.cleanup();
+      throw error;
     }
   }
 
@@ -214,16 +92,20 @@ export class GitLabOAuthService {
     if (!this.currentChallenge) {
       throw new Error('No PKCE challenge found');
     }
+    
+    if (!this.currentRedirectUri) {
+      throw new Error('No redirect URI found');
+    }
 
     const postData = new URLSearchParams({
       grant_type: 'authorization_code',
       code,
       code_verifier: this.currentChallenge.verifier,
       client_id: this.CLIENT_ID,
-      redirect_uri: this.REDIRECT_URI
+      redirect_uri: this.currentRedirectUri
     }).toString();
 
-    console.log('[GitLab OAuth] Exchange token with redirect_uri:', this.REDIRECT_URI);
+    console.log('[GitLab OAuth] Exchange token with redirect_uri:', this.currentRedirectUri);
 
     return new Promise((resolve, reject) => {
       const options = {
@@ -454,16 +336,35 @@ export class GitLabOAuthService {
   }
 
   /**
+   * Handle OAuth callback with authorization code (legacy protocol handler)
+   * Note: With random ports, this is only used if app registers a custom protocol
+   */
+  static handleCallback(url: string): void {
+    // Legacy handler - with random ports, callbacks come directly to the HTTP server
+    console.log('[GitLab OAuth] handleCallback called (legacy):', url);
+  }
+
+  /**
+   * Handle manual code input (fallback when automatic flow doesn't work)
+   * Note: With random ports, this may need updates in the UI
+   */
+  static handleManualCode(code: string): void {
+    console.log('[GitLab OAuth] handleManualCode called (legacy):', code);
+    // Manual code entry is no longer needed with HTTP callback server
+  }
+
+  /**
    * Cleanup resources
    */
   private static cleanup(): void {
     this.currentChallenge = null;
+    this.currentRedirectUri = null;
     if (this.authWindow && !this.authWindow.isDestroyed()) {
       this.authWindow.close();
       this.authWindow = null;
     }
     if (this.callbackServer) {
-      this.callbackServer.close();
+      this.callbackServer.stop();
       this.callbackServer = null;
     }
   }

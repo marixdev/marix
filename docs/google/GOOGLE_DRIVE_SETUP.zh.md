@@ -59,17 +59,15 @@
 4. 命名：`Marix Desktop Client`
 5. 点击 **"创建"**
 
-6. **下载 JSON 文件**：点击刚创建的凭据的下载图标
-   - 文件名将类似：`client_secret_xxx.apps.googleusercontent.com.json`
-   - 将此文件保存到 `src/main/services/`，命名为 `google-credentials.json`
+6. **复制客户端 ID**：点击复制图标来复制您的 Client ID
+   - 您只需要 `client_id` - 不需要 client secret（使用 PKCE）
+   - 在 `src/main/services/` 中创建文件 `google-credentials.json`
 
-7. **保存客户端 ID 和客户端密钥**：
+7. **保存客户端 ID**（使用 PKCE 无需 client_secret）：
 ```json
 {
   "installed": {
-    "client_id": "YOUR_CLIENT_ID.apps.googleusercontent.com",
-    "client_secret": "YOUR_CLIENT_SECRET",
-    "redirect_uris": ["http://localhost"]
+    "client_id": "YOUR_CLIENT_ID.apps.googleusercontent.com"
   }
 }
 ```
@@ -97,18 +95,18 @@ src/main/services/google-credentials.json
 ## 安全注意事项
 
 - **请勿**将 `google-credentials.json` 提交到 Git
-- 客户端密钥在生产环境中应加密或混淆
 - 刷新令牌存储在 Electron store 中（已加密）
 - 仅请求必要的最小权限
+- 使用 PKCE 进行安全的 OAuth 流程（无需客户端密钥）
 
-## 发布应用（可选）
+## 发布应用（必需）
 
-如果要公开您的应用：
+要允许所有用户使用该应用：
 
 1. 转到 **OAuth 同意屏幕**
 2. 点击 **"发布应用"**
-3. Google 将审核您的应用（1-2 周）
-4. 批准后，任何人都可以使用，不会出现"未验证应用"警告
+3. 您的应用将立即获得批准
+4. 任何人都可以使用，不会出现"未验证应用"警告
 
 ## 故障排除
 

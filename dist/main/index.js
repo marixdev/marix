@@ -2827,6 +2827,7 @@ electron_1.ipcMain.handle('portknock:validate', async (event, sequence) => {
     return PortKnockService_1.PortKnockService.validateKnockSequence(sequence);
 });
 // Check for updates from GitHub
+const UPDATE_REPO = 'marixdev/marix';
 electron_1.ipcMain.handle('app:checkForUpdates', async () => {
     try {
         const https = require('https');
@@ -2841,6 +2842,7 @@ electron_1.ipcMain.handle('app:checkForUpdates', async () => {
                         'Accept': 'application/vnd.github.v3+json'
                     }
                 };
+                console.log('[Update] Fetching:', path);
                 https.get(options, (res) => {
                     let data = '';
                     res.on('data', (chunk) => data += chunk);
@@ -2849,6 +2851,7 @@ electron_1.ipcMain.handle('app:checkForUpdates', async () => {
                             if (res.statusCode === 200) {
                                 const result = JSON.parse(data);
                                 if (isRelease) {
+                                    console.log('[Update] Latest release:', result.tag_name);
                                     resolve({
                                         success: true,
                                         latestVersion: result.tag_name?.replace('v', '') || result.name,
@@ -2861,10 +2864,11 @@ electron_1.ipcMain.handle('app:checkForUpdates', async () => {
                                     // Tags endpoint returns array
                                     if (Array.isArray(result) && result.length > 0) {
                                         const latestTag = result[0];
+                                        console.log('[Update] Latest tag:', latestTag.name);
                                         resolve({
                                             success: true,
                                             latestVersion: latestTag.name?.replace('v', '') || latestTag.ref?.split('/').pop()?.replace('v', ''),
-                                            releaseUrl: `https://github.com/marixdev/marix/releases/tag/${latestTag.name}`,
+                                            releaseUrl: `https://github.com/${UPDATE_REPO}/releases/tag/${latestTag.name}`,
                                             publishedAt: null,
                                             releaseNotes: null
                                         });
@@ -2876,7 +2880,8 @@ electron_1.ipcMain.handle('app:checkForUpdates', async () => {
                             }
                             else if (res.statusCode === 404 && isRelease) {
                                 // No releases found, try tags
-                                tryFetch('/repos/marixdev/marix/tags', false);
+                                console.log('[Update] No releases found, trying tags...');
+                                tryFetch(`/repos/${UPDATE_REPO}/tags`, false);
                             }
                             else {
                                 console.log('[Update] GitHub API response:', res.statusCode, data);
@@ -2894,7 +2899,7 @@ electron_1.ipcMain.handle('app:checkForUpdates', async () => {
                 });
             };
             // Start with releases endpoint
-            tryFetch('/repos/marixdev/marix/releases/latest', true);
+            tryFetch(`/repos/${UPDATE_REPO}/releases/latest`, true);
         });
     }
     catch (error) {
@@ -2903,8 +2908,17 @@ electron_1.ipcMain.handle('app:checkForUpdates', async () => {
 });
 // Open URL in browser
 electron_1.ipcMain.handle('app:openUrl', async (event, url) => {
+    console.log('[App] Opening URL:', url);
     const { shell } = require('electron');
-    shell.openExternal(url);
+    try {
+        await shell.openExternal(url);
+        console.log('[App] URL opened successfully');
+        return { success: true };
+    }
+    catch (err) {
+        console.error('[App] Failed to open URL:', err);
+        return { success: false, error: err.message };
+    }
 });
 // ==================== LAN Sharing ====================
 // Start LAN sharing service

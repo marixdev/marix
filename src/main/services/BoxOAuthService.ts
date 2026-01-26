@@ -1,7 +1,9 @@
-import { BrowserWindow, shell, safeStorage } from 'electron';
+import { BrowserWindow, shell, safeStorage, app } from 'electron';
 import { randomBytes, createHash } from 'crypto';
 import * as https from 'https';
-import * as http from 'http';
+import * as fs from 'fs';
+import * as path from 'path';
+import { BoxOAuthServer, OAuthCallbackServer } from './OAuthCallbackServer';
 
 interface BoxTokens {
   access_token: string;
@@ -15,16 +17,81 @@ interface PKCEChallenge {
   challenge: string;
 }
 
+interface BoxCredentials {
+  client_id: string;
+  client_secret: string;
+}
+
 export class BoxOAuthService {
-  private static CLIENT_ID = 'wktv4vmn1a7vroplh7pujybbqq818bmw';
-  private static CLIENT_SECRET = 'cf4xFFPNiWL3pGwHcma3XWLG6M93V6ju';
-  private static REDIRECT_URI = 'http://localhost:43823/callback';
   private static BOX_AUTH_URL = 'https://account.box.com/api/oauth2/authorize';
   private static BOX_TOKEN_URL = 'https://api.box.com/oauth2/token';
   
   private static currentChallenge: PKCEChallenge | null = null;
+  private static currentRedirectUri: string | null = null;
   private static authWindow: BrowserWindow | null = null;
-  private static callbackServer: http.Server | null = null;
+  private static callbackServer: OAuthCallbackServer | null = null;
+  private static credentials: BoxCredentials | null = null;
+
+  /**
+   * Load Box credentials from file
+   */
+  private static loadCredentials(): BoxCredentials | null {
+    if (this.credentials) return this.credentials;
+
+    const possiblePaths = [
+      path.join(__dirname, 'box-credentials.json'),
+      path.join(__dirname, '..', '..', '..', 'src', 'main', 'services', 'box-credentials.json'),
+      path.join(app.getAppPath(), 'src', 'main', 'services', 'box-credentials.json'),
+      path.join(app.getPath('userData'), 'box-credentials.json'),
+    ];
+
+    for (const credPath of possiblePaths) {
+      if (fs.existsSync(credPath)) {
+        try {
+          const content = fs.readFileSync(credPath, 'utf-8');
+          const creds = JSON.parse(content) as BoxCredentials;
+          
+          // Check if credentials are valid (not placeholders)
+          if (creds.client_id && !creds.client_id.startsWith('PLACEHOLDER') &&
+              creds.client_secret && !creds.client_secret.startsWith('PLACEHOLDER')) {
+            this.credentials = creds;
+            console.log('[BoxOAuth] Loaded credentials from:', credPath);
+            return creds;
+          }
+        } catch (e) {
+          console.error('[BoxOAuth] Error loading credentials:', e);
+        }
+      }
+    }
+
+    console.warn('[BoxOAuth] No valid credentials found');
+    return null;
+  }
+
+  /**
+   * Check if valid credentials are configured
+   */
+  static hasCredentials(): boolean {
+    return this.loadCredentials() !== null;
+  }
+
+  /**
+   * Get client ID
+   */
+  private static getClientId(): string {
+    const creds = this.loadCredentials();
+    if (!creds) throw new Error('Box credentials not configured');
+    return creds.client_id;
+  }
+
+  /**
+   * Get client secret
+   */
+  private static getClientSecret(): string {
+    const creds = this.loadCredentials();
+    if (!creds) throw new Error('Box credentials not configured');
+    return creds.client_secret;
+  }
 
   /**
    * Generate PKCE code verifier and challenge
@@ -44,154 +111,44 @@ export class BoxOAuthService {
    * Start OAuth flow with PKCE
    */
   static async startOAuthFlow(parentWindow?: BrowserWindow): Promise<BoxTokens> {
-    return new Promise((resolve, reject) => {
-      try {
-        // Generate PKCE challenge
-        this.currentChallenge = this.generatePKCE();
-        
-        // Start local HTTP server to listen for callback
-        this.startCallbackServer(resolve, reject);
-        
-        // Build authorization URL
-        const authUrl = new URL(this.BOX_AUTH_URL);
-        authUrl.searchParams.set('client_id', this.CLIENT_ID);
-        authUrl.searchParams.set('redirect_uri', this.REDIRECT_URI);
-        authUrl.searchParams.set('response_type', 'code');
-        authUrl.searchParams.set('code_challenge', this.currentChallenge.challenge);
-        authUrl.searchParams.set('code_challenge_method', 'S256');
-        
-        console.log('[Box OAuth] Opening authorization URL:', authUrl.toString());
-        
-        // Open in external browser
-        shell.openExternal(authUrl.toString());
-        
-        // Set timeout for OAuth flow (5 minutes)
-        const timeout = setTimeout(() => {
-          this.cleanup();
-          reject(new Error('OAuth flow timed out'));
-        }, 5 * 60 * 1000);
-        
-        // Store resolver for callback
-        (global as any).boxOAuthResolver = async (code: string) => {
-          clearTimeout(timeout);
-          try {
-            const tokens = await this.exchangeCodeForToken(code);
-            this.cleanup();
-            resolve(tokens);
-          } catch (error) {
-            this.cleanup();
-            reject(error);
-          }
-        };
-        
-        (global as any).boxOAuthRejecter = (error: Error) => {
-          clearTimeout(timeout);
-          this.cleanup();
-          reject(error);
-        };
-      } catch (error) {
-        this.cleanup();
-        reject(error);
-      }
-    });
-  }
-
-  /**
-   * Start HTTP callback server on localhost
-   */
-  private static startCallbackServer(
-    resolve: (tokens: BoxTokens) => void,
-    reject: (error: Error) => void
-  ): void {
-    // Close existing server if any
-    if (this.callbackServer) {
-      this.callbackServer.close();
-      this.callbackServer = null;
-    }
-
-    this.callbackServer = http.createServer((req, res) => {
-      const url = new URL(req.url || '', `http://localhost:43823`);
+    try {
+      // Generate PKCE challenge
+      this.currentChallenge = this.generatePKCE();
       
-      // Check if this is Box callback
-      if (url.pathname === '/callback' && url.searchParams.has('code')) {
-        const code = url.searchParams.get('code');
-        const error = url.searchParams.get('error');
-        const errorDescription = url.searchParams.get('error_description');
-
-        if (error) {
-          console.error('[Box OAuth] Error from Box:', error, errorDescription);
-          res.writeHead(200, { 'Content-Type': 'text/html' });
-          res.end(`
-            <!DOCTYPE html>
-            <html>
-            <head>
-              <title>Box Authentication Failed</title>
-              <style>
-                body { font-family: Arial, sans-serif; text-align: center; padding: 50px; background: #f44336; color: white; }
-                h1 { font-size: 24px; margin-bottom: 20px; }
-                p { font-size: 16px; }
-              </style>
-            </head>
-            <body>
-              <h1>❌ Authentication Failed</h1>
-              <p>${errorDescription || error}</p>
-              <p>You can close this window and try again.</p>
-            </body>
-            </html>
-          `);
-          
-          if ((global as any).boxOAuthRejecter) {
-            (global as any).boxOAuthRejecter(new Error(errorDescription || error));
-          }
-          return;
-        }
-
-        if (code) {
-          console.log('[Box OAuth] Received authorization code');
-          res.writeHead(200, { 'Content-Type': 'text/html' });
-          res.end(`
-            <!DOCTYPE html>
-            <html>
-            <head>
-              <title>Box Authentication Successful</title>
-              <style>
-                body { font-family: Arial, sans-serif; text-align: center; padding: 50px; background: #4CAF50; color: white; }
-                h1 { font-size: 24px; margin-bottom: 20px; }
-                p { font-size: 16px; }
-              </style>
-            </head>
-            <body>
-              <h1>✓ Authentication Successful</h1>
-              <p>You can close this window and return to Marix.</p>
-            </body>
-            </html>
-          `);
-
-          // Call the resolver
-          if ((global as any).boxOAuthResolver) {
-            (global as any).boxOAuthResolver(code);
-          }
-          return;
-        }
-      }
-
-      // Unknown request
-      res.writeHead(404, { 'Content-Type': 'text/plain' });
-      res.end('Not Found');
-    });
-
-    this.callbackServer.listen(43823, () => {
-      console.log('[Box OAuth] HTTP callback server listening on http://localhost:43823');
-    });
-
-    this.callbackServer.on('error', (error: any) => {
-      if (error.code === 'EADDRINUSE') {
-        console.log('[Box OAuth] Port 43823 already in use, server might already be running');
-      } else {
-        console.error('[Box OAuth] Server error:', error);
-        reject(error);
-      }
-    });
+      // Create callback server with random port
+      this.callbackServer = BoxOAuthServer();
+      
+      // Start server and wait for port assignment
+      await this.callbackServer.startServer();
+      
+      // Get the callback URL with the assigned port
+      this.currentRedirectUri = this.callbackServer.getCallbackUrl();
+      console.log('[Box OAuth] Using callback URL:', this.currentRedirectUri);
+      
+      // Build authorization URL
+      const authUrl = new URL(this.BOX_AUTH_URL);
+      authUrl.searchParams.set('client_id', this.getClientId());
+      authUrl.searchParams.set('redirect_uri', this.currentRedirectUri);
+      authUrl.searchParams.set('response_type', 'code');
+      authUrl.searchParams.set('code_challenge', this.currentChallenge.challenge);
+      authUrl.searchParams.set('code_challenge_method', 'S256');
+      
+      console.log('[Box OAuth] Opening authorization URL');
+      
+      // Open in external browser
+      await shell.openExternal(authUrl.toString());
+      
+      // Wait for authorization code
+      const { code } = await this.callbackServer.start();
+      
+      // Exchange code for tokens
+      const tokens = await this.exchangeCodeForToken(code);
+      
+      return tokens;
+    } catch (error) {
+      this.cleanup();
+      throw error;
+    }
   }
 
   /**
@@ -201,13 +158,18 @@ export class BoxOAuthService {
     if (!this.currentChallenge) {
       throw new Error('No PKCE challenge found');
     }
+    
+    if (!this.currentRedirectUri) {
+      throw new Error('No redirect URI found');
+    }
 
     return new Promise((resolve, reject) => {
       const postData = new URLSearchParams({
         grant_type: 'authorization_code',
         code: code,
-        client_id: this.CLIENT_ID,
-        client_secret: this.CLIENT_SECRET,
+        client_id: this.getClientId(),
+        client_secret: this.getClientSecret(),
+        redirect_uri: this.currentRedirectUri!,
         code_verifier: this.currentChallenge!.verifier,
       }).toString();
 
@@ -268,8 +230,8 @@ export class BoxOAuthService {
       const postData = new URLSearchParams({
         grant_type: 'refresh_token',
         refresh_token: refreshToken,
-        client_id: this.CLIENT_ID,
-        client_secret: this.CLIENT_SECRET,
+        client_id: this.getClientId(),
+        client_secret: this.getClientSecret(),
       }).toString();
 
       const url = new URL(this.BOX_TOKEN_URL);
@@ -463,7 +425,7 @@ export class BoxOAuthService {
    */
   private static cleanup(): void {
     if (this.callbackServer) {
-      this.callbackServer.close();
+      this.callbackServer.stop();
       this.callbackServer = null;
     }
     if (this.authWindow && !this.authWindow.isDestroyed()) {
@@ -471,7 +433,6 @@ export class BoxOAuthService {
       this.authWindow = null;
     }
     this.currentChallenge = null;
-    delete (global as any).boxOAuthResolver;
-    delete (global as any).boxOAuthRejecter;
+    this.currentRedirectUri = null;
   }
 }

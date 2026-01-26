@@ -59,22 +59,24 @@
 4. Name it: `Marix Desktop Client`
 5. Click **"Create"**
 
-6. **Download JSON file**: Click the download icon on the credentials you just created
-   - File will be named like: `client_secret_xxx.apps.googleusercontent.com.json`
-   - Save this file to `src/main/services/` with the name `google-credentials.json`
+6. **Download JSON file**: Click the download icon to get your credentials
+   - Or copy both `Client ID` and `Client Secret`
 
-7. **Save Client ID and Client Secret**:
+7. **For local development**: Create `google-credentials.json` in `src/main/services/`:
 ```json
 {
   "installed": {
     "client_id": "YOUR_CLIENT_ID.apps.googleusercontent.com",
-    "client_secret": "YOUR_CLIENT_SECRET",
-    "redirect_uris": ["http://localhost"]
+    "client_secret": "YOUR_CLIENT_SECRET"
   }
 }
 ```
 
+8. **For CI/CD builds**: Use GitHub Secrets (see below)
+
 ## Step 4: Configure in Marix
+
+### Option A: Local Development
 
 1. Copy the `google-credentials.json` file into `src/main/services/` folder
 2. **IMPORTANT**: Add to `.gitignore`:
@@ -82,7 +84,13 @@
 src/main/services/google-credentials.json
 ```
 
-3. The app will automatically load credentials on startup
+### Option B: CI/CD with GitHub Secrets (Recommended)
+
+1. Go to your GitHub repository → **Settings** → **Secrets and variables** → **Actions**
+2. Add these secrets:
+   - `GOOGLE_CLIENT_ID`: Your OAuth Client ID
+   - `GOOGLE_CLIENT_SECRET`: Your OAuth Client Secret
+3. The build workflow will automatically inject credentials during build
 
 ## Step 5: Test OAuth Flow
 
@@ -97,18 +105,19 @@ src/main/services/google-credentials.json
 ## Security Notes
 
 - **DO NOT** commit `google-credentials.json` to Git
-- Client Secret should be encrypted or obfuscated in production
+- Use **GitHub Secrets** for CI/CD builds to protect client_secret
 - Refresh tokens are stored in Electron store (encrypted)
 - Only request minimal necessary permissions
+- PKCE is used for additional OAuth flow security
 
-## Publishing App (Optional)
+## Publishing App (Required)
 
-When you want to make your app public:
+To allow all users to use the app:
 
 1. Go to **OAuth consent screen**
 2. Click **"Publish App"**
-3. Google will review your app (1-2 weeks)
-4. After approval, anyone can use it without "unverified app" warnings
+3. Your app will be approved immediately
+4. Anyone can use it without "unverified app" warnings
 
 ## Troubleshooting
 

@@ -59,17 +59,15 @@
 4. 이름 지정: `Marix Desktop Client`
 5. **"만들기"** 클릭
 
-6. **JSON 파일 다운로드**: 방금 생성한 인증 정보의 다운로드 아이콘 클릭
-   - 파일 이름: `client_secret_xxx.apps.googleusercontent.com.json`
-   - 이 파일을 `src/main/services/` 폴더에 `google-credentials.json`으로 저장
+6. **클라이언트 ID 복사**: 복사 아이콘을 클릭하여 Client ID 복사
+   - `client_id`만 필요합니다 - client secret은 필요 없음 (PKCE 사용)
+   - `src/main/services/`에 `google-credentials.json` 파일 생성
 
-7. **클라이언트 ID 및 클라이언트 보안 비밀 저장**:
+7. **클라이언트 ID 저장** (PKCE로 client_secret 필요 없음):
 ```json
 {
   "installed": {
-    "client_id": "YOUR_CLIENT_ID.apps.googleusercontent.com",
-    "client_secret": "YOUR_CLIENT_SECRET",
-    "redirect_uris": ["http://localhost"]
+    "client_id": "YOUR_CLIENT_ID.apps.googleusercontent.com"
   }
 }
 ```
@@ -97,18 +95,18 @@ src/main/services/google-credentials.json
 ## 보안 참고사항
 
 - `google-credentials.json`을 Git에 **커밋하지 마세요**
-- 클라이언트 보안 비밀은 프로덕션에서 암호화 또는 난독화 필요
 - 새로고침 토큰은 Electron store에 저장됨 (암호화)
 - 최소 필요 권한만 요청
+- 보안 OAuth 흐름에 PKCE 사용 (클라이언트 비밀 불필요)
 
-## 앱 게시 (선택사항)
+## 앱 게시 (필수)
 
-앱을 공개하려면:
+모든 사용자가 앱을 사용할 수 있도록 하려면:
 
 1. **OAuth 동의 화면** 이동
 2. **"앱 게시"** 클릭
-3. Google이 앱 검토 (1-2주)
-4. 승인 후 "확인되지 않은 앱" 경고 없이 누구나 사용 가능
+3. 앱이 즉시 승인됩니다
+4. "확인되지 않은 앱" 경고 없이 누구나 사용 가능
 
 ## 문제 해결
 

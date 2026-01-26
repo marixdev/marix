@@ -1650,42 +1650,33 @@ const App: React.FC = () => {
     };
     loadBuildInfo();
     
-    // Auto-check for updates once per day
+    // Auto-check for updates on startup
     const checkForUpdatesAuto = async () => {
-      const LAST_CHECK_KEY = 'last_update_check';
-      const ONE_DAY = 24 * 60 * 60 * 1000;
-      
       try {
-        const lastCheck = localStorage.getItem(LAST_CHECK_KEY);
-        const now = Date.now();
+        console.log('[App] Auto-update check starting...');
+        const result = await ipcRenderer.invoke('app:checkForUpdates');
+        console.log('[App] Update check result:', result);
         
-        // Only check if never checked or more than 1 day ago
-        if (!lastCheck || (now - parseInt(lastCheck)) > ONE_DAY) {
-          console.log('[App] Auto-checking for updates...');
-          const result = await ipcRenderer.invoke('app:checkForUpdates');
+        if (result.success && result.latestVersion) {
+          // Use semver comparison instead of string comparison
+          const hasUpdate = isNewerVersion(result.latestVersion, APP_VERSION);
           
-          if (result.success && result.latestVersion) {
-            // Use semver comparison instead of string comparison
-            const hasUpdate = isNewerVersion(result.latestVersion, APP_VERSION);
-            
-            console.log('[App] Version check:', result.latestVersion, 'vs', APP_VERSION, '-> hasUpdate:', hasUpdate);
-            
-            if (hasUpdate) {
-              console.log('[App] New version available:', result.latestVersion);
-              setUpdateInfo({
-                checking: false,
-                latestVersion: result.latestVersion,
-                releaseUrl: result.releaseUrl,
-                publishedAt: result.publishedAt,
-                releaseNotes: result.releaseNotes,
-                hasUpdate: true
-              });
-              setShowUpdateNotification(true);
-            }
+          console.log('[App] Version check:', result.latestVersion, 'vs', APP_VERSION, '-> hasUpdate:', hasUpdate);
+          
+          if (hasUpdate) {
+            console.log('[App] New version available:', result.latestVersion);
+            setUpdateInfo({
+              checking: false,
+              latestVersion: result.latestVersion,
+              releaseUrl: result.releaseUrl,
+              publishedAt: result.publishedAt,
+              releaseNotes: result.releaseNotes,
+              hasUpdate: true
+            });
+            setShowUpdateNotification(true);
+          } else {
+            console.log('[App] Already on latest version');
           }
-          
-          // Save last check time
-          localStorage.setItem(LAST_CHECK_KEY, now.toString());
         }
       } catch (err) {
         console.error('[App] Auto-update check failed:', err);
@@ -5232,9 +5223,17 @@ const App: React.FC = () => {
                             {updateInfo.hasUpdate ? `v${updateInfo.latestVersion} ${t('available') || 'available'}` : (t('upToDate') || 'Up to date')}
                           </span>
                         </div>
-                        {updateInfo.hasUpdate && updateInfo.releaseUrl && (
+                        {updateInfo.hasUpdate && (
                           <button
-                            onClick={() => ipcRenderer.invoke('app:openUrl', updateInfo.releaseUrl)}
+                            onClick={async () => {
+                              const url = updateInfo.releaseUrl || `https://github.com/marixdev/marix/releases/latest`;
+                              console.log('[Update] Opening download URL:', url);
+                              try {
+                                await ipcRenderer.invoke('app:openUrl', url);
+                              } catch (err) {
+                                console.error('[Update] Failed to open URL:', err);
+                              }
+                            }}
                             className="px-3 py-1.5 bg-orange-500 hover:bg-orange-600 !text-white text-sm rounded-lg transition flex items-center gap-1"
                           >
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -5717,9 +5716,13 @@ const App: React.FC = () => {
                 {t('newVersionAvailable') || 'New version'} <span className="font-semibold">v{updateInfo.latestVersion}</span>
               </span>
               <button
-                onClick={() => {
-                  if (updateInfo.releaseUrl) {
-                    window.electron.shell.openExternal(updateInfo.releaseUrl);
+                onClick={async () => {
+                  const url = updateInfo.releaseUrl || 'https://github.com/marixdev/marix/releases/latest';
+                  console.log('[Update] Opening URL from toast:', url);
+                  try {
+                    await ipcRenderer.invoke('app:openUrl', url);
+                  } catch (err) {
+                    console.error('[Update] Failed to open URL:', err);
                   }
                 }}
                 className="px-2 py-0.5 text-xs font-medium bg-teal-500 text-white rounded hover:bg-teal-600 transition"

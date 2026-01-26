@@ -31,6 +31,17 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Inject build info (commit SHA)
+        run: npm run inject-build-info
+
+      - name: Inject OAuth credentials
+        run: node scripts/inject-oauth-credentials.js
+        env:
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          BOX_CLIENT_ID: ${{ secrets.BOX_CLIENT_ID }}
+          BOX_CLIENT_SECRET: ${{ secrets.BOX_CLIENT_SECRET }}
+
       - name: Build Linux packages
         run: npm run package:linux
         env:
@@ -63,6 +74,17 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Inject build info (commit SHA)
+        run: npm run inject-build-info
+
+      - name: Inject OAuth credentials
+        run: node scripts/inject-oauth-credentials.js
+        env:
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          BOX_CLIENT_ID: ${{ secrets.BOX_CLIENT_ID }}
+          BOX_CLIENT_SECRET: ${{ secrets.BOX_CLIENT_SECRET }}
+
       - name: Build Windows package
         run: npm run package:win
         env:
@@ -90,6 +112,17 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Inject build info (commit SHA)
+        run: npm run inject-build-info
+
+      - name: Inject OAuth credentials
+        run: node scripts/inject-oauth-credentials.js
+        env:
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          BOX_CLIENT_ID: ${{ secrets.BOX_CLIENT_ID }}
+          BOX_CLIENT_SECRET: ${{ secrets.BOX_CLIENT_SECRET }}
 
       - name: Build macOS packages (x64 + arm64)
         run: npm run package:mac

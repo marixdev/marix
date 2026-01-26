@@ -59,17 +59,15 @@
 4. 名前を入力: `Marix Desktop Client`
 5. **「作成」**をクリック
 
-6. **JSONファイルをダウンロード**: 作成した認証情報のダウンロードアイコンをクリック
-   - ファイル名: `client_secret_xxx.apps.googleusercontent.com.json`
-   - このファイルを `src/main/services/` フォルダに `google-credentials.json` として保存
+6. **クライアントIDをコピー**：コピーアイコンをクリックしてClient IDをコピー
+   - `client_id` のみ必要です - client secretは不要（PKCE使用）
+   - `src/main/services/` に `google-credentials.json` ファイルを作成
 
-7. **クライアントIDとクライアントシークレットを保存**:
+7. **クライアントIDを保存**（PKCEでclient_secretは不要）：
 ```json
 {
   "installed": {
-    "client_id": "YOUR_CLIENT_ID.apps.googleusercontent.com",
-    "client_secret": "YOUR_CLIENT_SECRET",
-    "redirect_uris": ["http://localhost"]
+    "client_id": "YOUR_CLIENT_ID.apps.googleusercontent.com"
   }
 }
 ```
@@ -97,18 +95,18 @@ src/main/services/google-credentials.json
 ## セキュリティに関する注意事項
 
 - `google-credentials.json` を Git に**コミットしないでください**
-- クライアントシークレットは本番環境では暗号化または難読化が必要
 - リフレッシュトークンは Electron store に保存されます（暗号化）
 - 必要最小限の権限のみをリクエスト
+- 安全なOAuthフローのためにPKCEを使用（クライアントシークレット不要）
 
-## アプリの公開（オプション）
+## アプリの公開（必須）
 
-アプリを公開する場合:
+すべてのユーザーがアプリを使用できるようにするには:
 
 1. **OAuth同意画面**に移動
 2. **「アプリを公開」**をクリック
-3. Googleがアプリをレビュー（1〜2週間）
-4. 承認後、「未確認のアプリ」警告なしで誰でも使用可能
+3. アプリはすぐに承認されます
+4. 「未確認のアプリ」警告なしで誰でも使用可能
 
 ## トラブルシューティング
 

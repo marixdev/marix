@@ -1,13 +1,13 @@
 import { google, drive_v3 } from 'googleapis';
-import { OAuth2Client } from 'google-auth-library';
+import { OAuth2Client, CodeChallengeMethod } from 'google-auth-library';
 import { app, shell } from 'electron';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as crypto from 'crypto';
 import Store from 'electron-store';
-import { OAuth2CallbackServer } from './OAuth2CallbackServer';
+import { GoogleDriveOAuthServer, OAuthCallbackServer } from './OAuthCallbackServer';
 
 const SCOPES = ['https://www.googleapis.com/auth/drive.file'];
-const REDIRECT_URI = 'http://localhost:3000/oauth2callback';
 const TOKEN_PATH = path.join(app.getPath('userData'), 'google-drive-token.json');
 
 interface GoogleDriveTokens {
@@ -21,14 +21,19 @@ interface GoogleDriveTokens {
 interface GoogleDriveCredentials {
   installed?: {
     client_id: string;
-    client_secret: string;
-    redirect_uris: string[];
+    client_secret?: string; // Optional - not needed with PKCE
+    redirect_uris?: string[];
   };
   web?: {
     client_id: string;
-    client_secret: string;
-    redirect_uris: string[];
+    client_secret?: string; // Optional - not needed with PKCE
+    redirect_uris?: string[];
   };
+}
+
+interface PKCEChallenge {
+  verifier: string;
+  challenge: string;
 }
 
 export class GoogleDriveService {
@@ -36,11 +41,12 @@ export class GoogleDriveService {
   private drive: drive_v3.Drive | null = null;
   private store: any;
   private credentials: GoogleDriveCredentials | null = null;
-  private callbackServer: OAuth2CallbackServer;
+  private callbackServer: OAuthCallbackServer | null = null;
+  private currentPkceVerifier: string | null = null;
+  private currentRedirectUri: string | null = null;
 
   constructor() {
     this.store = new Store({ name: 'google-drive-config' });
-    this.callbackServer = new OAuth2CallbackServer();
     this.loadCredentials();
   }
 
@@ -96,13 +102,25 @@ export class GoogleDriveService {
    * Check if credentials are configured
    */
   hasCredentials(): boolean {
-    return this.credentials !== null;
+    if (!this.credentials) return false;
+    
+    const creds = this.credentials.installed || this.credentials.web;
+    if (!creds) return false;
+    
+    // Check if credentials are valid (not placeholders)
+    if (creds.client_id.startsWith('PLACEHOLDER') || 
+        !creds.client_secret || 
+        creds.client_secret.startsWith('PLACEHOLDER')) {
+      return false;
+    }
+    
+    return true;
   }
 
   /**
-   * Initialize OAuth2 client
+   * Initialize OAuth2 client with dynamic redirect URI
    */
-  private initOAuth2Client(): OAuth2Client {
+  private initOAuth2Client(redirectUri?: string): OAuth2Client {
     if (!this.credentials) {
       throw new Error('Google Drive credentials not configured');
     }
@@ -112,10 +130,20 @@ export class GoogleDriveService {
       throw new Error('Invalid credentials format');
     }
 
+    // Validate credentials are not placeholders
+    if (creds.client_id.startsWith('PLACEHOLDER') || 
+        !creds.client_secret || 
+        creds.client_secret.startsWith('PLACEHOLDER')) {
+      throw new Error('Google Drive credentials not configured. Please set up valid OAuth credentials.');
+    }
+
+    // Use provided redirect URI or default
+    const uri = redirectUri || this.currentRedirectUri || 'http://localhost:3000/oauth2callback';
+
     this.oauth2Client = new google.auth.OAuth2(
       creds.client_id,
       creds.client_secret,
-      REDIRECT_URI
+      uri
     );
 
     // Load saved tokens if available
@@ -128,17 +156,37 @@ export class GoogleDriveService {
   }
 
   /**
-   * Get authorization URL for OAuth flow
+   * Generate PKCE code verifier and challenge
+   */
+  private generatePKCE(): PKCEChallenge {
+    // Generate random 64-byte string for verifier (43-128 chars required)
+    const verifier = crypto.randomBytes(64).toString('base64url');
+    
+    // Generate SHA256 hash and encode as base64url for challenge
+    const hash = crypto.createHash('sha256').update(verifier).digest();
+    const challenge = hash.toString('base64url');
+    
+    return { verifier, challenge };
+  }
+
+  /**
+   * Get authorization URL for OAuth flow with PKCE
    */
   getAuthUrl(): string {
     if (!this.oauth2Client) {
       this.initOAuth2Client();
     }
 
+    // Generate PKCE challenge
+    const pkce = this.generatePKCE();
+    this.currentPkceVerifier = pkce.verifier;
+
     const authUrl = this.oauth2Client!.generateAuthUrl({
       access_type: 'offline',
       scope: SCOPES,
       prompt: 'consent', // Force to get refresh_token
+      code_challenge: pkce.challenge,
+      code_challenge_method: CodeChallengeMethod.S256,
     });
 
     return authUrl;
@@ -156,17 +204,24 @@ export class GoogleDriveService {
         };
       }
 
-      // Get auth URL
-      const authUrl = this.getAuthUrl();
+      // Create callback server with random port
+      this.callbackServer = GoogleDriveOAuthServer();
+      
+      // Start server and wait for port assignment
+      await this.callbackServer.startServer();
+      
+      // Get the callback URL with the assigned port
+      this.currentRedirectUri = this.callbackServer.getCallbackUrl();
+      console.log('[GoogleDrive] Using callback URL:', this.currentRedirectUri);
 
-      // Start callback server
-      const codePromise = this.callbackServer.start();
+      // Get auth URL with the dynamic redirect URI
+      const authUrl = this.getAuthUrl();
       
       // Open browser for user to authenticate
       await shell.openExternal(authUrl);
 
-      // Wait for authorization code
-      const code = await codePromise;
+      // Wait for authorization code (start() now just waits for callback)
+      const { code } = await this.callbackServer.start();
 
       // Handle the callback
       const result = await this.handleAuthCallback(code);
@@ -174,7 +229,9 @@ export class GoogleDriveService {
       return { success: result.success, error: result.error };
     } catch (error: any) {
       console.error('[GoogleDrive] Error starting auth flow:', error);
-      this.callbackServer.stop();
+      if (this.callbackServer) {
+        this.callbackServer.stop();
+      }
       return { success: false, error: error.message };
     }
   }
@@ -188,8 +245,23 @@ export class GoogleDriveService {
         this.initOAuth2Client();
       }
 
-      const { tokens } = await this.oauth2Client!.getToken(code);
+      // Use PKCE code_verifier for additional security
+      if (!this.currentPkceVerifier) {
+        throw new Error('PKCE verifier is missing. Please restart the auth flow.');
+      }
+
+      console.log('[GoogleDrive] Exchanging code for tokens with PKCE...');
+
+      const { tokens } = await this.oauth2Client!.getToken({
+        code,
+        codeVerifier: this.currentPkceVerifier,
+        redirect_uri: this.currentRedirectUri!,
+      });
+      
       this.oauth2Client!.setCredentials(tokens);
+      
+      // Clear PKCE verifier after use
+      this.currentPkceVerifier = null;
 
       // Save tokens for future use
       this.store.set('tokens', tokens);

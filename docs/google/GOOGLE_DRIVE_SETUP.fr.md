@@ -59,17 +59,15 @@
 4. Nommez-le : `Marix Desktop Client`
 5. Cliquez sur **"Créer"**
 
-6. **Télécharger le fichier JSON** : Cliquez sur l'icône de téléchargement des identifiants que vous venez de créer
-   - Le fichier sera nommé comme : `client_secret_xxx.apps.googleusercontent.com.json`
-   - Enregistrez ce fichier dans `src/main/services/` avec le nom `google-credentials.json`
+6. **Copier l'ID client** : Cliquez sur l'icône de copie pour copier votre Client ID
+   - Vous n'avez besoin que du `client_id` - pas de client secret requis (utilisant PKCE)
+   - Créez le fichier `google-credentials.json` dans `src/main/services/`
 
-7. **Enregistrer l'ID client et le secret client** :
+7. **Enregistrer l'ID client** (client_secret N'EST PAS requis avec PKCE) :
 ```json
 {
   "installed": {
-    "client_id": "YOUR_CLIENT_ID.apps.googleusercontent.com",
-    "client_secret": "YOUR_CLIENT_SECRET",
-    "redirect_uris": ["http://localhost"]
+    "client_id": "YOUR_CLIENT_ID.apps.googleusercontent.com"
   }
 }
 ```
@@ -97,18 +95,18 @@ src/main/services/google-credentials.json
 ## Notes de sécurité
 
 - **NE PAS** valider `google-credentials.json` dans Git
-- Le secret client doit être chiffré ou obfusqué en production
 - Les jetons de rafraîchissement sont stockés dans Electron store (chiffrés)
 - Demandez uniquement les autorisations minimales nécessaires
+- PKCE est utilisé pour un flux OAuth sécurisé (pas besoin de secret client)
 
-## Publication de l'application (facultatif)
+## Publication de l'application (Obligatoire)
 
-Lorsque vous souhaitez rendre votre application publique :
+Pour permettre à tous les utilisateurs d'utiliser l'application :
 
 1. Allez dans **Écran de consentement OAuth**
 2. Cliquez sur **"Publier l'application"**
-3. Google examinera votre application (1-2 semaines)
-4. Après approbation, tout le monde peut l'utiliser sans avertissement "application non vérifiée"
+3. Votre application sera approuvée immédiatement
+4. Tout le monde peut l'utiliser sans avertissement "application non vérifiée"
 
 ## Dépannage
 
