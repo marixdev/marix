@@ -304,138 +304,128 @@ jobs:
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_ANNOUNCEMENTS }}
           VERSION: ${{ needs.release.outputs.version }}
+          REPO: ${{ github.repository }}
         run: |
-          # Escape special characters for JSON
-          ADDED=$(echo '${{ steps.changelog.outputs.added }}' | sed 's/"/\\"/g' | sed ':a;N;$!ba;s/\n/\\n/g')
-          FIXED=$(echo '${{ steps.changelog.outputs.fixed }}' | sed 's/"/\\"/g' | sed ':a;N;$!ba;s/\n/\\n/g')
-          CHANGED=$(echo '${{ steps.changelog.outputs.changed }}' | sed 's/"/\\"/g' | sed ':a;N;$!ba;s/\n/\\n/g')
-          SECURITY=$(echo '${{ steps.changelog.outputs.security }}' | sed 's/"/\\"/g' | sed ':a;N;$!ba;s/\n/\\n/g')
+          # Pre-compute date values to avoid shell escaping issues
+          RELEASE_DATE=$(date -u '+%Y-%m-%d %H:%M UTC')
+          TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           
-          curl -H "Content-Type: application/json" \
-            -X POST \
-            -d "{
-              \"content\": \"# 🎉 Marix v${VERSION} Released!\\n\\nA new version of Marix SSH Client is now available!\\n\\n---\",
-              \"embeds\": [{
-                \"title\": \"📦 What's New in v${VERSION}\",
-                \"description\": \"*Released: $(date -u '+%Y-%m-%d %H:%M UTC')*\",
-                \"color\": 5814783,
-                \"fields\": [
-                  {
-                    \"name\": \"✨ Added\",
-                    \"value\": \"${ADDED}\",
-                    \"inline\": false
-                  },
-                  {
-                    \"name\": \"🐛 Fixed\",
-                    \"value\": \"${FIXED}\",
-                    \"inline\": false
-                  },
-                  {
-                    \"name\": \"🔄 Changed\",
-                    \"value\": \"${CHANGED}\",
-                    \"inline\": false
-                  },
-                  {
-                    \"name\": \"🔒 Security\",
-                    \"value\": \"${SECURITY}\",
-                    \"inline\": false
-                  }
-                ],
-                \"footer\": {
-                  \"text\": \"Marix - Your credentials never leave your device 🔐\"
-                },
-                \"timestamp\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",
-                \"url\": \"https://github.com/${{ github.repository }}/releases/tag/${VERSION}\"
-              },
-              {
-                \"title\": \"📥 Download Now\",
-                \"color\": 3066993,
-                \"fields\": [
-                  {
-                    \"name\": \"🪟 Windows\",
-                    \"value\": \"[Download EXE](https://github.com/${{ github.repository }}/releases/download/${VERSION}/Marix.Setup.${VERSION}.exe)\",
-                    \"inline\": true
-                  },
-                  {
-                    \"name\": \"🍎 macOS Intel\",
-                    \"value\": \"[Download ZIP](https://github.com/${{ github.repository }}/releases/download/${VERSION}/Marix-${VERSION}-mac.zip)\",
-                    \"inline\": true
-                  },
-                  {
-                    \"name\": \"🍎 macOS ARM\",
-                    \"value\": \"[Download ZIP](https://github.com/${{ github.repository }}/releases/download/${VERSION}/Marix-${VERSION}-arm64-mac.zip)\",
-                    \"inline\": true
-                  },
-                  {
-                    \"name\": \"🐧 Linux AppImage\",
-                    \"value\": \"[Download](https://github.com/${{ github.repository }}/releases/download/${VERSION}/Marix-${VERSION}.AppImage)\",
-                    \"inline\": true
-                  },
-                  {
-                    \"name\": \"🐧 Linux DEB\",
-                    \"value\": \"[Download](https://github.com/${{ github.repository }}/releases/download/${VERSION}/marix_${VERSION}_amd64.deb)\",
-                    \"inline\": true
-                  },
-                  {
-                    \"name\": \"🐧 Linux RPM\",
-                    \"value\": \"[Download](https://github.com/${{ github.repository }}/releases/download/${VERSION}/marix-${VERSION}.x86_64.rpm)\",
-                    \"inline\": true
-                  }
-                ],
-                \"footer\": {
-                  \"text\": \"View full release on GitHub\"
-                },
-                \"url\": \"https://github.com/${{ github.repository }}/releases/tag/${VERSION}\"
-              }]
-            }" \
-            $DISCORD_WEBHOOK
+          # Escape special characters for JSON - use heredoc to avoid quote issues
+          ADDED=$(cat <<'EOFADDED'
+          ${{ steps.changelog.outputs.added }}
+          EOFADDED
+          )
+          ADDED=$(echo "$ADDED" | sed 's/"/\\"/g' | tr '\n' ' ' | sed 's/  */ /g')
+          
+          FIXED=$(cat <<'EOFFIXED'
+          ${{ steps.changelog.outputs.fixed }}
+          EOFFIXED
+          )
+          FIXED=$(echo "$FIXED" | sed 's/"/\\"/g' | tr '\n' ' ' | sed 's/  */ /g')
+          
+          CHANGED=$(cat <<'EOFCHANGED'
+          ${{ steps.changelog.outputs.changed }}
+          EOFCHANGED
+          )
+          CHANGED=$(echo "$CHANGED" | sed 's/"/\\"/g' | tr '\n' ' ' | sed 's/  */ /g')
+          
+          SECURITY=$(cat <<'EOFSECURITY'
+          ${{ steps.changelog.outputs.security }}
+          EOFSECURITY
+          )
+          SECURITY=$(echo "$SECURITY" | sed 's/"/\\"/g' | tr '\n' ' ' | sed 's/  */ /g')
+          
+          # Use a temp file for the JSON payload to avoid escaping issues
+          cat > /tmp/discord_payload.json << EOFPAYLOAD
+          {
+            "content": "# 🎉 Marix v${VERSION} Released!\n\nA new version of Marix SSH Client is now available!\n\n---",
+            "embeds": [{
+              "title": "📦 What's New in v${VERSION}",
+              "description": "*Released: ${RELEASE_DATE}*",
+              "color": 5814783,
+              "fields": [
+                {"name": "✨ Added", "value": "${ADDED}", "inline": false},
+                {"name": "🐛 Fixed", "value": "${FIXED}", "inline": false},
+                {"name": "🔄 Changed", "value": "${CHANGED}", "inline": false},
+                {"name": "🔒 Security", "value": "${SECURITY}", "inline": false}
+              ],
+              "footer": {"text": "Marix - Your credentials never leave your device 🔐"},
+              "timestamp": "${TIMESTAMP}",
+              "url": "https://github.com/${REPO}/releases/tag/${VERSION}"
+            },
+            {
+              "title": "📥 Download Now",
+              "color": 3066993,
+              "fields": [
+                {"name": "🪟 Windows", "value": "[Download EXE](https://github.com/${REPO}/releases/download/${VERSION}/Marix.Setup.${VERSION}.exe)", "inline": true},
+                {"name": "🍎 macOS Intel", "value": "[Download ZIP](https://github.com/${REPO}/releases/download/${VERSION}/Marix-${VERSION}-mac.zip)", "inline": true},
+                {"name": "🍎 macOS ARM", "value": "[Download ZIP](https://github.com/${REPO}/releases/download/${VERSION}/Marix-${VERSION}-arm64-mac.zip)", "inline": true},
+                {"name": "🐧 Linux AppImage", "value": "[Download](https://github.com/${REPO}/releases/download/${VERSION}/Marix-${VERSION}.AppImage)", "inline": true},
+                {"name": "🐧 Linux DEB", "value": "[Download](https://github.com/${REPO}/releases/download/${VERSION}/marix_${VERSION}_amd64.deb)", "inline": true},
+                {"name": "🐧 Linux RPM", "value": "[Download](https://github.com/${REPO}/releases/download/${VERSION}/marix-${VERSION}.x86_64.rpm)", "inline": true}
+              ],
+              "footer": {"text": "View full release on GitHub"},
+              "url": "https://github.com/${REPO}/releases/tag/${VERSION}"
+            }]
+          }
+          EOFPAYLOAD
+          
+          curl -H "Content-Type: application/json" -X POST -d @/tmp/discord_payload.json $DISCORD_WEBHOOK
 
       - name: Post to Discord Changelog
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_CHANGELOG }}
           VERSION: ${{ needs.release.outputs.version }}
+          REPO: ${{ github.repository }}
         run: |
-          ADDED=$(echo '${{ steps.changelog.outputs.added }}' | sed 's/"/\\"/g' | sed ':a;N;$!ba;s/\n/\\n/g')
-          FIXED=$(echo '${{ steps.changelog.outputs.fixed }}' | sed 's/"/\\"/g' | sed ':a;N;$!ba;s/\n/\\n/g')
-          CHANGED=$(echo '${{ steps.changelog.outputs.changed }}' | sed 's/"/\\"/g' | sed ':a;N;$!ba;s/\n/\\n/g')
-          SECURITY=$(echo '${{ steps.changelog.outputs.security }}' | sed 's/"/\\"/g' | sed ':a;N;$!ba;s/\n/\\n/g')
+          # Pre-compute date values
+          RELEASE_DATE=$(date -u '+%Y-%m-%d %H:%M UTC')
           
-          curl -H "Content-Type: application/json" \
-            -X POST \
-            -d "{
-              \"embeds\": [{
-                \"title\": \"📦 Version ${VERSION}\",
-                \"description\": \"*Released: $(date -u '+%Y-%m-%d %H:%M UTC')*\",
-                \"color\": 3447003,
-                \"fields\": [
-                  {
-                    \"name\": \"✨ Added\",
-                    \"value\": \"${ADDED}\",
-                    \"inline\": false
-                  },
-                  {
-                    \"name\": \"🐛 Fixed\",
-                    \"value\": \"${FIXED}\",
-                    \"inline\": false
-                  },
-                  {
-                    \"name\": \"🔄 Changed\",
-                    \"value\": \"${CHANGED}\",
-                    \"inline\": false
-                  },
-                  {
-                    \"name\": \"🔒 Security\",
-                    \"value\": \"${SECURITY}\",
-                    \"inline\": false
-                  }
-                ],
-                \"footer\": {
-                  \"text\": \"View full changelog on GitHub\"
-                },
-                \"url\": \"https://github.com/${{ github.repository }}/releases/tag/${VERSION}\"
-              }]
-            }" \
-            $DISCORD_WEBHOOK
+          # Escape special characters using heredoc
+          ADDED=$(cat <<'EOFADDED'
+          ${{ steps.changelog.outputs.added }}
+          EOFADDED
+          )
+          ADDED=$(echo "$ADDED" | sed 's/"/\\"/g' | tr '\n' ' ' | sed 's/  */ /g')
+          
+          FIXED=$(cat <<'EOFFIXED'
+          ${{ steps.changelog.outputs.fixed }}
+          EOFFIXED
+          )
+          FIXED=$(echo "$FIXED" | sed 's/"/\\"/g' | tr '\n' ' ' | sed 's/  */ /g')
+          
+          CHANGED=$(cat <<'EOFCHANGED'
+          ${{ steps.changelog.outputs.changed }}
+          EOFCHANGED
+          )
+          CHANGED=$(echo "$CHANGED" | sed 's/"/\\"/g' | tr '\n' ' ' | sed 's/  */ /g')
+          
+          SECURITY=$(cat <<'EOFSECURITY'
+          ${{ steps.changelog.outputs.security }}
+          EOFSECURITY
+          )
+          SECURITY=$(echo "$SECURITY" | sed 's/"/\\"/g' | tr '\n' ' ' | sed 's/  */ /g')
+          
+          # Use temp file to avoid escaping issues
+          cat > /tmp/discord_changelog.json << EOFPAYLOAD
+          {
+            "embeds": [{
+              "title": "📦 Version ${VERSION}",
+              "description": "*Released: ${RELEASE_DATE}*",
+              "color": 3447003,
+              "fields": [
+                {"name": "✨ Added", "value": "${ADDED}", "inline": false},
+                {"name": "🐛 Fixed", "value": "${FIXED}", "inline": false},
+                {"name": "🔄 Changed", "value": "${CHANGED}", "inline": false},
+                {"name": "🔒 Security", "value": "${SECURITY}", "inline": false}
+              ],
+              "footer": {"text": "View full changelog on GitHub"},
+              "url": "https://github.com/${REPO}/releases/tag/${VERSION}"
+            }]
+          }
+          EOFPAYLOAD
+          
+          curl -H "Content-Type: application/json" -X POST -d @/tmp/discord_changelog.json $DISCORD_WEBHOOK
 
       - name: Discord Notification Status
         if: always()
