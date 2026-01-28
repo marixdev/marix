@@ -1,12 +1,76 @@
-import { ipcMain } from 'electron';
+import { ipcMain, app } from 'electron';
 import * as mysql from 'mysql2/promise';
 import { Client as PgClient } from 'pg';
 import { MongoClient } from 'mongodb';
 import { createClient as createRedisClient } from 'redis';
 import * as sqlite3 from 'sqlite3';
+import * as fs from 'fs';
+import * as path from 'path';
+import { Client as SSHClient } from 'ssh2';
 
 // Store active connections
 const connections: Map<string, any> = new Map();
+
+// Store downloaded SQLite files for cleanup and sync back
+const downloadedSqliteFiles: Map<string, { 
+  localPath: string; 
+  remotePath: string;
+  config: ConnectionConfig;
+}> = new Map();
+
+// Helper function to upload SQLite file back to remote server
+async function uploadSqliteToRemote(
+  localPath: string, 
+  remotePath: string, 
+  config: ConnectionConfig
+): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const ssh = new SSHClient();
+    
+    ssh.on('ready', () => {
+      ssh.sftp((err, sftp) => {
+        if (err) {
+          ssh.end();
+          return reject(new Error(`SFTP session failed: ${err.message}`));
+        }
+        
+        // Upload the file
+        const readStream = fs.createReadStream(localPath);
+        const writeStream = sftp.createWriteStream(remotePath);
+        
+        readStream.on('error', (e: Error) => {
+          ssh.end();
+          reject(new Error(`Failed to read local file: ${e.message}`));
+        });
+        
+        writeStream.on('error', (e: Error) => {
+          ssh.end();
+          reject(new Error(`Failed to write remote file: ${e.message}`));
+        });
+        
+        writeStream.on('close', () => {
+          console.log(`[SQLite] Uploaded back to remote: ${remotePath}`);
+          ssh.end();
+          resolve();
+        });
+        
+        readStream.pipe(writeStream);
+      });
+    });
+    
+    ssh.on('error', (err) => {
+      reject(new Error(`SSH connection failed: ${err.message}`));
+    });
+    
+    ssh.connect({
+      host: config.host,
+      port: config.sshPort || 22,
+      username: config.sshUsername || config.username,
+      password: config.sshPassword || config.password,
+      privateKey: config.sshPrivateKey ? Buffer.from(config.sshPrivateKey) : undefined,
+    });
+  });
+}
 
 interface ConnectionConfig {
   connectionId: string;
@@ -19,6 +83,12 @@ interface ConnectionConfig {
   sslEnabled?: boolean;
   mongoUri?: string;
   sqliteFile?: string;
+  // SSH tunnel info for remote SQLite
+  sshHost?: string;
+  sshPort?: number;
+  sshUsername?: string;
+  sshPassword?: string;
+  sshPrivateKey?: string;
 }
 
 interface QueryParams {
@@ -94,7 +164,127 @@ export function initDatabaseHandlers() {
           
         case 'sqlite':
           // SQLite is local file-based
-          connection = new sqlite3.Database(config.sqliteFile || ':memory:');
+          const sqliteFilePath = config.sqliteFile || ':memory:';
+          let localSqlitePath = sqliteFilePath;
+          
+          // Check if this is a remote SQLite file (host is not local)
+          const isLocalHost = !config.host || config.host === 'localhost' || config.host === '127.0.0.1' || config.host === '::1';
+          
+          if (sqliteFilePath !== ':memory:' && !isLocalHost && config.sshUsername) {
+            // Remote SQLite - need to download via SFTP first
+            console.log(`[SQLite] Remote file detected: ${sqliteFilePath} on ${config.host}`);
+            
+            try {
+              // Create temp directory for SQLite files
+              const tempDir = path.join(app.getPath('temp'), 'marix-sqlite');
+              if (!fs.existsSync(tempDir)) {
+                fs.mkdirSync(tempDir, { recursive: true });
+              }
+              
+              // Generate unique local filename
+              const timestamp = Date.now();
+              const fileName = path.basename(sqliteFilePath);
+              localSqlitePath = path.join(tempDir, `${config.connectionId}_${timestamp}_${fileName}`);
+              
+              // Download file via SFTP
+              await new Promise<void>((resolve, reject) => {
+                const ssh = new SSHClient();
+                
+                ssh.on('ready', () => {
+                  ssh.sftp((err, sftp) => {
+                    if (err) {
+                      ssh.end();
+                      return reject(new Error(`SFTP session failed: ${err.message}`));
+                    }
+                    
+                    // Download the file
+                    const readStream = sftp.createReadStream(sqliteFilePath);
+                    const writeStream = fs.createWriteStream(localSqlitePath);
+                    
+                    readStream.on('error', (e: Error) => {
+                      ssh.end();
+                      reject(new Error(`Failed to read remote file: ${e.message}`));
+                    });
+                    
+                    writeStream.on('error', (e: Error) => {
+                      ssh.end();
+                      reject(new Error(`Failed to write local file: ${e.message}`));
+                    });
+                    
+                    writeStream.on('finish', () => {
+                      console.log(`[SQLite] Downloaded to: ${localSqlitePath}`);
+                      ssh.end();
+                      resolve();
+                    });
+                    
+                    readStream.pipe(writeStream);
+                  });
+                });
+                
+                ssh.on('error', (err) => {
+                  reject(new Error(`SSH connection failed: ${err.message}`));
+                });
+                
+                // Connect to SSH
+                ssh.connect({
+                  host: config.host,
+                  port: config.sshPort || 22,
+                  username: config.sshUsername || config.username,
+                  password: config.sshPassword || config.password,
+                  privateKey: config.sshPrivateKey ? Buffer.from(config.sshPrivateKey) : undefined,
+                });
+              });
+              
+              // Store for sync back and cleanup later
+              downloadedSqliteFiles.set(config.connectionId, {
+                localPath: localSqlitePath,
+                remotePath: sqliteFilePath,
+                config: config,
+              });
+              
+            } catch (downloadError: any) {
+              return {
+                success: false,
+                error: `Failed to download SQLite file from remote server:\n\n${downloadError.message}\n\nMake sure the file exists on the remote server and you have read permissions.`
+              };
+            }
+          }
+          
+          // Check if file exists and is accessible (skip for :memory:)
+          if (localSqlitePath !== ':memory:') {
+            const absolutePath = path.resolve(localSqlitePath);
+            
+            // Check if file exists
+            if (!fs.existsSync(absolutePath)) {
+              return { 
+                success: false, 
+                error: `SQLite file not found: ${absolutePath}\n\nMake sure the file exists and the path is correct.` 
+              };
+            }
+            
+            // Check if we have read access
+            try {
+              fs.accessSync(absolutePath, fs.constants.R_OK | fs.constants.W_OK);
+            } catch {
+              return { 
+                success: false, 
+                error: `Permission denied: Cannot read/write SQLite file: ${absolutePath}\n\nCheck file permissions.` 
+              };
+            }
+            
+            localSqlitePath = absolutePath;
+          }
+          
+          // Open database with promise wrapper
+          connection = await new Promise((resolve, reject) => {
+            const db = new sqlite3.Database(localSqlitePath, sqlite3.OPEN_READWRITE, (err) => {
+              if (err) {
+                reject(err);
+              } else {
+                resolve(db);
+              }
+            });
+          });
           databases = ['main'];
           break;
           
@@ -137,6 +327,31 @@ export function initDatabaseHandlers() {
           break;
         case 'sqlite':
           conn.connection.close();
+          // Upload back and cleanup downloaded SQLite file if any
+          const downloadedFileInfo = downloadedSqliteFiles.get(connectionId);
+          if (downloadedFileInfo && fs.existsSync(downloadedFileInfo.localPath)) {
+            try {
+              // Upload back to remote server
+              console.log(`[SQLite] Uploading changes back to remote: ${downloadedFileInfo.remotePath}`);
+              await uploadSqliteToRemote(
+                downloadedFileInfo.localPath,
+                downloadedFileInfo.remotePath,
+                downloadedFileInfo.config
+              );
+              console.log(`[SQLite] Successfully synced back to remote server`);
+              
+              // Now cleanup local temp file
+              fs.unlinkSync(downloadedFileInfo.localPath);
+              console.log(`[SQLite] Cleaned up temp file: ${downloadedFileInfo.localPath}`);
+            } catch (e: any) {
+              console.error(`[SQLite] Failed to sync back to remote: ${e.message}`);
+              // Still try to cleanup local file
+              try {
+                fs.unlinkSync(downloadedFileInfo.localPath);
+              } catch {}
+            }
+            downloadedSqliteFiles.delete(connectionId);
+          }
           break;
       }
       
@@ -144,6 +359,32 @@ export function initDatabaseHandlers() {
       return { success: true };
     } catch (error: any) {
       return { success: false, error: error.message };
+    }
+  });
+
+  // Sync SQLite file back to remote server (manual sync)
+  ipcMain.handle('db:syncSqlite', async (_, { connectionId }: { connectionId: string }) => {
+    try {
+      const downloadedFileInfo = downloadedSqliteFiles.get(connectionId);
+      if (!downloadedFileInfo) {
+        return { success: false, error: 'No remote SQLite file to sync. This feature only works for remote SQLite databases.' };
+      }
+      
+      if (!fs.existsSync(downloadedFileInfo.localPath)) {
+        return { success: false, error: 'Local SQLite file not found.' };
+      }
+      
+      console.log(`[SQLite] Manual sync: Uploading to ${downloadedFileInfo.remotePath}`);
+      await uploadSqliteToRemote(
+        downloadedFileInfo.localPath,
+        downloadedFileInfo.remotePath,
+        downloadedFileInfo.config
+      );
+      
+      return { success: true, message: 'SQLite file synced to remote server successfully.' };
+    } catch (error: any) {
+      console.error('[SQLite] Sync failed:', error);
+      return { success: false, error: `Failed to sync: ${error.message}` };
     }
   });
 

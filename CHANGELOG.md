@@ -2,6 +2,33 @@
 
 All notable changes to Marix SSH Client will be documented in this file.
 
+## [1.0.18] - 2026-01-28
+
+### Added
+- **Remote SQLite Support**: Connect to SQLite databases on remote servers via SFTP
+  - Auto-download SQLite file from remote server when connecting
+  - Auto-upload changes back to server when disconnecting
+  - Manual sync button to push changes without disconnecting
+  - Shows last synced time in UI
+
+### Changed
+- **Database Client Tabs**: Hide unsupported features per database type
+  - MongoDB: Hide Structure, ERD, Import/Export tabs (uses mongodump/mongorestore)
+  - Redis: Hide Structure, ERD, Import/Export tabs (key-value store)
+  - MySQL, PostgreSQL, SQLite: All tabs available
+
+### Fixed
+- **SQLite Connection Error**: Better error handling for missing or inaccessible files
+  - Checks file existence before opening
+  - Checks read/write permissions
+  - Clear error messages instead of app crash
+
+- **Keyboard Focus Bug**: Fixed input fields becoming unresponsive after closing connections
+  - Affected all connection types: SSH, FTP, Database, WebSocket, RDP
+  - Root cause: Native `window.confirm()` dialog interfered with Electron's focus management
+  - Solution: Replaced with custom React `ConfirmModal` component
+  - Keyboard input now works correctly after closing any session
+
 ## [1.0.17] - 2026-01-27
 
 ### Added

@@ -957,6 +957,39 @@ ipcMain.handle('window:close', () => {
   mainWindow?.close();
 });
 
+// Reset window focus (refocus webContents to fix input responsiveness)
+// Uses sendInputEvent to release any stuck modifier keys without blurring the window
+ipcMain.handle('window:resetFocus', async () => {
+  if (mainWindow) {
+    const wc = mainWindow.webContents;
+    
+    // Send keyUp events for all modifier keys to release any stuck state
+    // This is more reliable than blur/focus which minimizes the window
+    const modifiers: Array<'Control' | 'Shift' | 'Alt' | 'Meta'> = ['Control', 'Shift', 'Alt', 'Meta'];
+    for (const mod of modifiers) {
+      try {
+        wc.sendInputEvent({ type: 'keyUp', keyCode: mod });
+      } catch (e) {
+        // Ignore errors
+      }
+    }
+    
+    // Send Escape key to clear any focus traps
+    try {
+      wc.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
+      wc.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' });
+    } catch (e) {
+      // Ignore errors
+    }
+    
+    // Refocus webContents
+    wc.focus();
+    
+    // Send a message to renderer
+    wc.send('window:focusReset');
+  }
+});
+
 // Dialog handler for file selection
 ipcMain.handle('dialog:openFile', async (event, options) => {
   // Ensure 'All Files' is always first option for files without extension
@@ -3008,6 +3041,21 @@ ipcMain.handle('app:getBuildInfo', async () => {
     chromeVersion: process.versions.chrome,
     v8Version: process.versions.v8,
   };
+});
+
+// Focus window handler - used to restore focus after closing sessions
+ipcMain.handle('app:focusWindow', async () => {
+  if (mainWindow) {
+    // Focus the window first
+    if (mainWindow.isMinimized()) {
+      mainWindow.restore();
+    }
+    mainWindow.focus();
+    // Then focus webContents to ensure renderer gets focus
+    mainWindow.webContents.focus();
+    return true;
+  }
+  return false;
 });
 
 // Known Hosts handlers

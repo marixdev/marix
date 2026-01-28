@@ -24,6 +24,7 @@ import PortForwardingPage from './components/PortForwardingPage';
 import SessionMonitorIndicator from './components/SessionMonitorIndicator';
 import LockScreen from './components/LockScreen';
 import { BackupModal } from './components/BackupModal';
+import ConfirmModal from './components/ConfirmModal';
 import { useTerminalContext } from './contexts/TerminalContext';
 import { useLanguage } from './contexts/LanguageContext';
 
@@ -98,6 +99,11 @@ const App: React.FC = () => {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [showModal, setShowModal] = useState(false);
+  
+  // Hidden input ref for focus trap (fixes keyboard input after closing sessions)
+  const focusTrapRef = useRef<HTMLInputElement>(null);
+  // Confirm modal state (for closing sessions without native confirm dialog)
+  const [closeConfirmModal, setCloseConfirmModal] = useState<{ sessionId: string; serverName: string } | null>(null);
   const [editingServer, setEditingServer] = useState<Server | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [currentTheme, setCurrentTheme] = useState('Dracula');
@@ -585,6 +591,24 @@ const App: React.FC = () => {
     ipcRenderer.on('menu:send-files', handleSendFiles);
     return () => {
       ipcRenderer.removeListener('menu:send-files', handleSendFiles);
+    };
+  }, []);
+
+  // Listen for focus reset from main process (after closing sessions)
+  useEffect(() => {
+    const handleFocusReset = () => {
+      // Use the focus trap input to capture and release focus
+      if (focusTrapRef.current) {
+        focusTrapRef.current.focus();
+        // Slight delay before blur to ensure focus is captured
+        setTimeout(() => {
+          focusTrapRef.current?.blur();
+        }, 10);
+      }
+    };
+    ipcRenderer.on('window:focusReset', handleFocusReset);
+    return () => {
+      ipcRenderer.removeListener('window:focusReset', handleFocusReset);
     };
   }, []);
 
@@ -3053,35 +3077,30 @@ const App: React.FC = () => {
     }
   };
 
+  // Handle close session request - show custom confirm modal instead of window.confirm()
   const handleCloseSession = async (id: string, skipConfirm = false) => {
     const session = sessions.find(s => s.id === id);
     if (!session) return;
     
-    // Ask for confirmation before closing (unless skipped)
+    // Show custom confirm modal instead of window.confirm() to avoid focus issues
     if (!skipConfirm) {
-      const confirmed = window.confirm(
-        t('confirmCloseSession') || `Close connection to "${session.server.name}"?`
-      );
-      if (!confirmed) return;
+      setCloseConfirmModal({ sessionId: id, serverName: session.server.name });
+      return;
     }
+    
+    // Actual close logic - called when user confirms
+    doCloseSession(id);
+  };
+
+  // Actually perform the session close (after confirmation or skipConfirm)
+  const doCloseSession = async (id: string) => {
+    const session = sessions.find(s => s.id === id);
+    if (!session) return;
     
     const protocol = session.server.protocol || 'ssh';
+    const connectionId = session.connectionId;
     
-    if (protocol === 'ftp' || protocol === 'ftps') {
-      // Disconnect FTP
-      await ipcRenderer.invoke('ftp:disconnect', session.connectionId);
-    } else if (protocol === 'wss') {
-      // Disconnect WebSocket - no need to destroy terminal
-      await ipcRenderer.invoke('wss:disconnect', session.connectionId);
-    } else if (['mysql', 'postgresql', 'mongodb', 'redis', 'sqlite'].includes(protocol)) {
-      // Disconnect database - handled by DatabaseClient component
-      await ipcRenderer.invoke('db:disconnect', session.connectionId);
-    } else {
-      // SSH/RDP - Destroy terminal instance
-      destroyTerminal(session.connectionId);
-      await ipcRenderer.invoke('ssh:disconnect', session.connectionId);
-    }
-    
+    // Update UI state FIRST before any async operations
     const newSessions = sessions.filter(s => s.id !== id);
     setSessions(newSessions);
     if (activeSessionId === id) {
@@ -3093,6 +3112,25 @@ const App: React.FC = () => {
       setSidebarOpen(true);
       setActiveMenu('hosts');
     }
+    
+    // Use setTimeout to push disconnect operations to next tick
+    setTimeout(async () => {
+      try {
+        if (protocol === 'ftp' || protocol === 'ftps') {
+          await ipcRenderer.invoke('ftp:disconnect', connectionId);
+        } else if (protocol === 'wss') {
+          await ipcRenderer.invoke('wss:disconnect', connectionId);
+        } else if (['mysql', 'postgresql', 'mongodb', 'redis', 'sqlite'].includes(protocol)) {
+          await ipcRenderer.invoke('db:disconnect', connectionId);
+        } else {
+          // SSH/RDP - Destroy terminal instance
+          destroyTerminal(connectionId);
+          await ipcRenderer.invoke('ssh:disconnect', connectionId);
+        }
+      } catch (err) {
+        console.error('[App] Error disconnecting:', err);
+      }
+    }, 0);
   };
 
   const toggleSessionType = () => {
@@ -3169,6 +3207,23 @@ const App: React.FC = () => {
 
   return (
     <div className="flex flex-col h-screen bg-navy-900 text-gray-100">
+      {/* Hidden focus trap input - used to reset keyboard focus after closing sessions */}
+      <input
+        ref={focusTrapRef}
+        type="text"
+        aria-hidden="true"
+        tabIndex={-1}
+        style={{
+          position: 'absolute',
+          left: '-9999px',
+          top: '-9999px',
+          width: '1px',
+          height: '1px',
+          opacity: 0,
+          pointerEvents: 'none'
+        }}
+      />
+      
       {/* Lock Screen */}
       {isAppLocked && (
         <LockScreen
@@ -4491,6 +4546,78 @@ const App: React.FC = () => {
                                     <div>{t('validFrom')}: {ntResult.data.ssl.validFrom}</div>
                                     <div>{t('validTo')}: {ntResult.data.ssl.validTo}</div>
                                   </div>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                          
+                          {/* WebCheck Result */}
+                          {ntResult.tool === 'webcheck' && ntResult.data && (
+                            <div className="space-y-4">
+                              {/* HTTPS Check */}
+                              {ntResult.data.https && (
+                                <div className={`p-3 rounded ${appTheme === 'light' ? 'bg-gray-50' : 'bg-navy-900'}`}>
+                                  <div className="flex items-center gap-2 mb-2">
+                                    <span className={`w-2 h-2 rounded-full ${ntResult.data.https.success ? 'bg-green-500' : 'bg-red-500'}`} />
+                                    <span className="font-medium">HTTPS</span>
+                                    {ntResult.data.https.data?.statusCode && (
+                                      <span className={`px-2 py-0.5 rounded text-xs ${
+                                        ntResult.data.https.data.statusCode < 300 ? 'bg-green-500/20 text-green-600' :
+                                        ntResult.data.https.data.statusCode < 400 ? 'bg-yellow-500/20 text-yellow-600' :
+                                        'bg-red-500/20 text-red-500'
+                                      }`}>
+                                        {ntResult.data.https.data.statusCode} {ntResult.data.https.data.statusMessage}
+                                      </span>
+                                    )}
+                                    {ntResult.data.https.data?.latency && (
+                                      <span className="text-xs text-gray-500">{ntResult.data.https.data.latency}</span>
+                                    )}
+                                  </div>
+                                  {ntResult.data.https.error && (
+                                    <p className="text-xs text-red-500">{ntResult.data.https.error}</p>
+                                  )}
+                                  {ntResult.data.https.data?.ssl && (
+                                    <div className="mt-2 pt-2 border-t border-gray-700 text-xs space-y-1">
+                                      <div className="flex items-center gap-2">
+                                        <span className={`w-2 h-2 rounded-full ${ntResult.data.https.data.ssl.valid ? 'bg-green-500' : 'bg-red-500'}`} />
+                                        <span>SSL {ntResult.data.https.data.ssl.valid ? 'Valid' : 'Invalid'}</span>
+                                      </div>
+                                      {ntResult.data.https.data.ssl.subject?.CN && (
+                                        <div className="text-gray-500">CN: {ntResult.data.https.data.ssl.subject.CN}</div>
+                                      )}
+                                      {ntResult.data.https.data.ssl.issuer?.O && (
+                                        <div className="text-gray-500">Issuer: {ntResult.data.https.data.ssl.issuer.O}</div>
+                                      )}
+                                      {ntResult.data.https.data.ssl.validTo && (
+                                        <div className="text-gray-500">Expires: {ntResult.data.https.data.ssl.validTo}</div>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                              
+                              {/* HTTP Check */}
+                              {ntResult.data.http && (
+                                <div className={`p-3 rounded ${appTheme === 'light' ? 'bg-gray-50' : 'bg-navy-900'}`}>
+                                  <div className="flex items-center gap-2 mb-2">
+                                    <span className={`w-2 h-2 rounded-full ${ntResult.data.http.success ? 'bg-green-500' : 'bg-red-500'}`} />
+                                    <span className="font-medium">HTTP</span>
+                                    {ntResult.data.http.data?.statusCode && (
+                                      <span className={`px-2 py-0.5 rounded text-xs ${
+                                        ntResult.data.http.data.statusCode < 300 ? 'bg-green-500/20 text-green-600' :
+                                        ntResult.data.http.data.statusCode < 400 ? 'bg-yellow-500/20 text-yellow-600' :
+                                        'bg-red-500/20 text-red-500'
+                                      }`}>
+                                        {ntResult.data.http.data.statusCode} {ntResult.data.http.data.statusMessage}
+                                      </span>
+                                    )}
+                                    {ntResult.data.http.data?.latency && (
+                                      <span className="text-xs text-gray-500">{ntResult.data.http.data.latency}</span>
+                                    )}
+                                  </div>
+                                  {ntResult.data.http.error && (
+                                    <p className="text-xs text-red-500">{ntResult.data.http.error}</p>
+                                  )}
                                 </div>
                               )}
                             </div>
@@ -6400,6 +6527,24 @@ const App: React.FC = () => {
             setConnectingServerId(null);
           }}
           onSkip={fingerprintModal.onProceed}
+        />
+      )}
+
+      {/* Close Session Confirm Modal */}
+      {closeConfirmModal && (
+        <ConfirmModal
+          isOpen={true}
+          title={t('confirmDisconnect')}
+          message={`${t('confirmCloseSession')} "${closeConfirmModal.serverName}"?`}
+          confirmText={t('disconnect')}
+          cancelText={t('cancel')}
+          variant="warning"
+          onConfirm={() => {
+            const sessionId = closeConfirmModal.sessionId;
+            setCloseConfirmModal(null);
+            doCloseSession(sessionId);
+          }}
+          onCancel={() => setCloseConfirmModal(null)}
         />
       )}
 

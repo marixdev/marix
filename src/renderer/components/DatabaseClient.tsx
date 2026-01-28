@@ -111,6 +111,7 @@ const PROTOCOL_CONFIG = {
     importTypes: '.sql,.txt',
     supportsStructure: true,
     supportsERD: true,
+    supportsImportExport: true,
   },
   postgresql: {
     icon: 'postgresql' as keyof typeof Icons,
@@ -120,6 +121,7 @@ const PROTOCOL_CONFIG = {
     importTypes: '.sql,.txt',
     supportsStructure: true,
     supportsERD: true,
+    supportsImportExport: true,
   },
   mongodb: {
     icon: 'mongodb' as keyof typeof Icons,
@@ -129,6 +131,7 @@ const PROTOCOL_CONFIG = {
     importTypes: '.json,.bson',
     supportsStructure: false,
     supportsERD: false,
+    supportsImportExport: false, // MongoDB uses mongodump/mongorestore, not SQL import
   },
   redis: {
     icon: 'redis' as keyof typeof Icons,
@@ -138,6 +141,7 @@ const PROTOCOL_CONFIG = {
     importTypes: '.json,.txt',
     supportsStructure: false,
     supportsERD: false,
+    supportsImportExport: false, // Redis is key-value, doesn't support traditional import/export
   },
   sqlite: {
     icon: 'sqlite' as keyof typeof Icons,
@@ -147,6 +151,7 @@ const PROTOCOL_CONFIG = {
     importTypes: '.sql,.db,.sqlite',
     supportsStructure: true,
     supportsERD: true,
+    supportsImportExport: true,
   },
 };
 
@@ -232,6 +237,15 @@ const DatabaseClient: React.FC<DatabaseClientProps> = ({
   const [primaryKeyColumn, setPrimaryKeyColumn] = useState<string | null>(null);
   const [savingRow, setSavingRow] = useState(false);
   
+  // Remote SQLite sync
+  const [syncing, setSyncing] = useState(false);
+  const [lastSynced, setLastSynced] = useState<Date | null>(null);
+  const isRemoteSqlite = server.protocol === 'sqlite' && 
+    server.host && 
+    server.host !== 'localhost' && 
+    server.host !== '127.0.0.1' && 
+    server.host !== '::1';
+  
   // Refs
   const logEndRef = useRef<HTMLDivElement>(null);
 
@@ -256,6 +270,11 @@ const DatabaseClient: React.FC<DatabaseClientProps> = ({
         sslEnabled: server.sslEnabled,
         mongoUri: server.mongoUri,
         sqliteFile: server.sqliteFile,
+        // SSH tunnel info for remote SQLite
+        sshHost: server.host,
+        sshPort: server.port || 22,
+        sshUsername: server.username,
+        sshPassword: server.password,
       });
       
       if (result.success) {
@@ -319,6 +338,29 @@ const DatabaseClient: React.FC<DatabaseClientProps> = ({
   useEffect(() => {
     logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [operationLog]);
+
+  // ---------------------------------------------------------------------------
+  // SYNC FUNCTION (Remote SQLite)
+  // ---------------------------------------------------------------------------
+  
+  const syncToRemote = async () => {
+    if (!isRemoteSqlite) return;
+    
+    setSyncing(true);
+    try {
+      const result = await ipcRenderer.invoke('db:syncSqlite', { connectionId });
+      if (result.success) {
+        setLastSynced(new Date());
+        setOperationLog(prev => [...prev, { type: 'success', text: `✓ Synced to remote server: ${server.host}` }]);
+      } else {
+        setOperationLog(prev => [...prev, { type: 'error', text: `✗ Sync failed: ${result.error}` }]);
+      }
+    } catch (err: any) {
+      setOperationLog(prev => [...prev, { type: 'error', text: `✗ Sync error: ${err.message}` }]);
+    } finally {
+      setSyncing(false);
+    }
+  };
 
   // ---------------------------------------------------------------------------
   // DATA FUNCTIONS
@@ -1289,8 +1331,34 @@ const DatabaseClient: React.FC<DatabaseClientProps> = ({
                 </p>
                 <p className={`text-xs truncate ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
                   {config.name} • {server.host}
+                  {isRemoteSqlite && lastSynced && (
+                    <span className="ml-2 text-green-500">• Synced {lastSynced.toLocaleTimeString()}</span>
+                  )}
                 </p>
               </div>
+              {/* Sync button for remote SQLite */}
+              {isRemoteSqlite && (
+                <button
+                  onClick={syncToRemote}
+                  disabled={syncing}
+                  className={`p-1.5 rounded-lg transition-colors ${
+                    syncing 
+                      ? 'opacity-50 cursor-not-allowed' 
+                      : isDark 
+                        ? 'hover:bg-green-600/20 text-green-400 hover:text-green-300' 
+                        : 'hover:bg-green-100 text-green-600 hover:text-green-700'
+                  }`}
+                  title="Sync changes to remote server"
+                >
+                  {syncing ? (
+                    <div className="w-4 h-4 border-2 border-green-400 border-t-transparent rounded-full animate-spin"></div>
+                  ) : (
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                    </svg>
+                  )}
+                </button>
+              )}
               <button
                 onClick={() => setSidebarCollapsed(true)}
                 className={`p-1.5 rounded-lg transition-colors ${isDark ? 'hover:bg-navy-700 text-gray-400' : 'hover:bg-gray-100 text-gray-500'}`}
@@ -1410,7 +1478,7 @@ const DatabaseClient: React.FC<DatabaseClientProps> = ({
             { id: 'query' as TabType, icon: Icons.query, label: t('dbQuery') },
             { id: 'structure' as TabType, icon: Icons.structure, label: t('dbStructure'), show: config.supportsStructure },
             { id: 'erd' as TabType, icon: Icons.erd, label: t('dbERD'), show: config.supportsERD },
-            { id: 'import-export' as TabType, icon: Icons.importExport, label: t('dbImportExport') },
+            { id: 'import-export' as TabType, icon: Icons.importExport, label: t('dbImportExport'), show: config.supportsImportExport },
           ].filter(tab => tab.show !== false).map(tab => (
             <button
               key={tab.id}

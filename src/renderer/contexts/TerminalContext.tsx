@@ -261,7 +261,7 @@ export const TerminalProvider: React.FC<{ children: ReactNode }> = ({ children }
     if (instance) {
       console.log('[TerminalContext] Destroying terminal:', connectionId);
       
-      // Remove listeners
+      // Remove listeners first
       const listeners = listenersRef.current.get(connectionId);
       if (listeners) {
         ipcRenderer.removeListener('ssh:shellData', listeners.data);
@@ -269,11 +269,68 @@ export const TerminalProvider: React.FC<{ children: ReactNode }> = ({ children }
         listenersRef.current.delete(connectionId);
       }
 
+      // Get element reference before dispose
+      const element = instance.xterm.element;
+      const parentElement = element?.parentElement;
+      
+      // Find and disable the hidden textarea that xterm uses for keyboard input
+      const textarea = element?.querySelector('textarea.xterm-helper-textarea') as HTMLTextAreaElement | null;
+      if (textarea) {
+        textarea.disabled = true;
+        textarea.readOnly = true;
+        textarea.blur();
+        // Remove all event listeners by replacing with clone
+        const newTextarea = textarea.cloneNode(true) as HTMLTextAreaElement;
+        textarea.parentNode?.replaceChild(newTextarea, textarea);
+      }
+
+      // Detach custom key event handler
+      try {
+        instance.xterm.attachCustomKeyEventHandler(() => true);
+      } catch (e) {
+        console.log('[TerminalContext] Error detaching key handler:', e);
+      }
+
+      // Blur terminal before disposing to release focus
+      try {
+        instance.xterm.blur();
+        // Clear all selections
+        instance.xterm.clearSelection();
+      } catch (e) {
+        console.log('[TerminalContext] Error blurring terminal:', e);
+      }
+
+      // Dispose fitAddon first
+      try {
+        instance.fitAddon.dispose();
+      } catch (e) {
+        console.log('[TerminalContext] Error disposing fitAddon:', e);
+      }
+
       // Dispose terminal
-      instance.xterm.dispose();
+      try {
+        instance.xterm.dispose();
+      } catch (e) {
+        console.log('[TerminalContext] Error disposing terminal:', e);
+      }
+
+      // Remove element from DOM completely
+      // Use the wrapper element (instance.element) instead of xterm.element
+      // because xterm.element may already be detached after dispose()
+      const wrapperElement = instance.element;
+      const wrapperParent = wrapperElement?.parentElement;
+      if (wrapperParent && wrapperElement) {
+        try {
+          wrapperParent.removeChild(wrapperElement);
+        } catch (e) {
+          console.log('[TerminalContext] Error removing element:', e);
+        }
+      }
       
       // Remove from map
       terminalsRef.current.delete(connectionId);
+      
+      console.log('[TerminalContext] Terminal destroyed:', connectionId);
     }
   };
 
