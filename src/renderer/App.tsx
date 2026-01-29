@@ -69,6 +69,9 @@ export interface Server {
   mongoUri?: string;  // MongoDB connection URI (alternative to host/port)
   sqliteFile?: string;  // Path to SQLite file (for remote SQLite via SSH)
   notes?: string;  // User notes for this server (sticky note feature)
+  envVars?: { [key: string]: string };  // Environment variables for SSH (like ssh -o SetEnv)
+  defaultRemotePath?: string;  // Default remote path for SFTP
+  defaultLocalPath?: string;   // Default local path for SFTP
 }
 
 export interface Session {
@@ -2665,6 +2668,10 @@ const App: React.FC = () => {
           connectionId,
           type: 'sftp',  // Show file browser
           theme: currentTheme,
+          sftpPaths: {
+            localPath: server.defaultLocalPath || '',
+            remotePath: server.defaultRemotePath || '',
+          },
         };
 
         setSessions([...sessions, ftpSession]);
@@ -2861,6 +2868,10 @@ const App: React.FC = () => {
         connectionId: result.connectionId,
         type: 'sftp',  // Open SFTP directly
         theme: currentTheme,
+        sftpPaths: {
+          localPath: server.defaultLocalPath || '',
+          remotePath: server.defaultRemotePath || '',
+        },
       };
 
       setSessions(prev => [...prev, sftpSession]);
@@ -2930,6 +2941,10 @@ const App: React.FC = () => {
         connectionId: result.connectionId,
         type: 'terminal',
         theme: currentTheme,
+        sftpPaths: {
+          localPath: server.defaultLocalPath || '',
+          remotePath: server.defaultRemotePath || '',
+        },
       };
 
       setSessions(prev => [...prev, terminalSession]);

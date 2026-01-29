@@ -72,6 +72,7 @@ export interface SSHConfig {
   passphrase?: string;
   authType?: 'password' | 'key';
   useLegacyAlgorithms?: boolean;  // Enable legacy SSH algorithms for old servers (CentOS 6, RHEL 6)
+  envVars?: { [key: string]: string };  // Environment variables to set on remote shell (like ssh -o SetEnv)
 }
 
 interface PTYSession {
@@ -125,6 +126,17 @@ export class NativeSSHManager {
       );
     }
 
+    // Add environment variables via SetEnv option
+    // Note: Requires server to have AcceptEnv configured, otherwise will be silently ignored
+    // We'll also inject them via export commands after shell is ready as fallback
+    if (config.envVars && Object.keys(config.envVars).length > 0) {
+      for (const [key, value] of Object.entries(config.envVars)) {
+        // SetEnv uses space-separated key=value pairs in newer OpenSSH
+        sshArgs.push('-o', `SetEnv=${key}=${value}`);
+      }
+      console.log('[NativeSSH] Setting env vars:', Object.keys(config.envVars).join(', '));
+    }
+
     // Add port and host
     sshArgs.push(
       '-p', config.port.toString(),
@@ -171,6 +183,7 @@ export class NativeSSHManager {
     let dataBuffer = '';
     let lastBufferSize = 0;
     let hideNextOutput = false;  // Flag to hide password prompt output
+    let envVarsInjected = false;  // Track if we've injected env vars
 
     // Forward data from PTY to emitter
     ptyProcess.onData((data: string) => {
@@ -186,6 +199,37 @@ export class NativeSSHManager {
       lastBufferSize = dataBuffer.length;
       const lowerData = data.toLowerCase();
       const lowerBuffer = dataBuffer.toLowerCase();
+
+      // Inject environment variables after successful login (as fallback for servers without AcceptEnv)
+      // Detect shell prompt indicators
+      if (!envVarsInjected && config.envVars && Object.keys(config.envVars).length > 0) {
+        const hasShellPrompt = 
+          data.includes('$') || 
+          data.includes('#') || 
+          data.includes('%') ||
+          data.includes('Last login') ||
+          data.includes('Welcome') ||
+          data.includes('~]');
+        
+        if (hasShellPrompt && (passwordSent || passphraseSent || config.authType !== 'password')) {
+          envVarsInjected = true;
+          
+          // Build export commands
+          const exportCommands = Object.entries(config.envVars)
+            .map(([key, value]) => {
+              // Escape single quotes in values
+              const escapedValue = value.replace(/'/g, "'\\''");
+              return `export ${key}='${escapedValue}'`;
+            })
+            .join(' && ');
+          
+          // Inject after short delay to ensure shell is ready
+          setTimeout(() => {
+            console.log('[NativeSSH] Injecting environment variables...');
+            ptyProcess.write(`${exportCommands} && clear\r`);
+          }, 100);
+        }
+      }
       
       // Handle passphrase for encrypted key (check new data only)
       if (config.authType === 'key' && config.passphrase && !passphraseSent) {

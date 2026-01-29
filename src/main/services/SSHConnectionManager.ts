@@ -8,6 +8,7 @@ export interface SSHConfig {
   password?: string;
   privateKey?: Buffer | string;
   passphrase?: string;
+  envVars?: { [key: string]: string };  // Environment variables to set on remote shell
 }
 
 // Legacy algorithms for old servers (CentOS 6, RHEL 6, etc.)
@@ -67,6 +68,7 @@ interface ConnectionData {
   client: Client;
   greeting?: string;
   banner?: string;
+  envVars?: { [key: string]: string };  // Environment variables to set on shell creation
 }
 
 export class SSHConnectionManager {
@@ -120,7 +122,7 @@ export class SSHConnectionManager {
 
       client.on('ready', () => {
         console.log('[SSHConnectionManager] Connected successfully:', connectionId);
-        this.connections.set(connectionId, { client, greeting, banner });
+        this.connections.set(connectionId, { client, greeting, banner, envVars: config.envVars });
         this.connectionConfigs.set(connectionId, config);
         resolve(connectionId);
       });
@@ -185,7 +187,7 @@ export class SSHConnectionManager {
       return existingEmitter;
     }
 
-    const { client, greeting, banner } = connData;
+    const { client, greeting, banner, envVars } = connData;
 
     return new Promise((resolve, reject) => {
       // MUST use shell() with PTY - NOT exec()
@@ -213,6 +215,7 @@ export class SSHConnectionManager {
         // Buffer ALL data until renderer listener is ready
         let dataBuffer: string[] = [];
         let hasListener = false;
+        let envVarsInjected = false;
 
         // Pre-fill buffer with greeting and banner if available
         if (greeting) {
@@ -223,6 +226,29 @@ export class SSHConnectionManager {
           console.log('[SSH] Adding banner to buffer:', banner.length, 'bytes');
           dataBuffer.push(banner);
         }
+
+        // Function to inject environment variables into the shell
+        const injectEnvVars = () => {
+          if (envVarsInjected || !envVars || Object.keys(envVars).length === 0) {
+            return;
+          }
+          envVarsInjected = true;
+          
+          // Build export commands for each env var
+          const exportCommands = Object.entries(envVars)
+            .map(([key, value]) => {
+              // Escape single quotes in values
+              const escapedValue = value.replace(/'/g, "'\\''");
+              return `export ${key}='${escapedValue}'`;
+            })
+            .join(' && ');
+          
+          if (exportCommands) {
+            console.log('[SSH] Injecting environment variables:', Object.keys(envVars).join(', '));
+            // Send export commands followed by newline, then clear to hide from user
+            stream.write(`${exportCommands} && clear\n`);
+          }
+        };
 
         const flushBuffer = () => {
           if (dataBuffer.length === 0) {
@@ -292,6 +318,8 @@ export class SSHConnectionManager {
                   // Emit MOTD first (with newline)
                   emitter.emit('data', '\r\n' + motd + '\r\n');
                 }
+                // Inject environment variables after MOTD
+                injectEnvVars();
                 // Then flush buffered shell data (prompt)
                 flushBuffer();
               });

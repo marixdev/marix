@@ -46,6 +46,9 @@ const AddServerModal: React.FC<Props> = ({ server, existingTags = [], onSave, on
     sslEnabled: false,  // SSL for database
     mongoUri: '',  // MongoDB connection URI
     sqliteFile: '',  // SQLite file path
+    envVars: {} as { [key: string]: string },  // Environment variables for SSH
+    defaultRemotePath: '',  // Default remote path for SFTP
+    defaultLocalPath: '',   // Default local path for SFTP
   });
   const [tagInput, setTagInput] = useState('');
   const [showTagSuggestions, setShowTagSuggestions] = useState(false);
@@ -53,6 +56,7 @@ const AddServerModal: React.FC<Props> = ({ server, existingTags = [], onSave, on
   const [loadingKeys, setLoadingKeys] = useState(false);
   const [knockInput, setKnockInput] = useState('');
   const [showKnockGuide, setShowKnockGuide] = useState(false);
+  const [envVarsInput, setEnvVarsInput] = useState('');  // Input for env vars (KEY=VALUE format)
 
   // Load SSH keys from Keychain
   useEffect(() => {
@@ -95,11 +99,20 @@ const AddServerModal: React.FC<Props> = ({ server, existingTags = [], onSave, on
         sslEnabled: (server as any).sslEnabled || false,
         mongoUri: (server as any).mongoUri || '',
         sqliteFile: (server as any).sqliteFile || '',
+        envVars: (server as any).envVars || {},
+        defaultRemotePath: (server as any).defaultRemotePath || '',
+        defaultLocalPath: (server as any).defaultLocalPath || '',
       });
       
       // Set knock input string
       if (server.knockSequence && server.knockSequence.length > 0) {
         setKnockInput(server.knockSequence.join(', '));
+      }
+      
+      // Set env vars input string
+      const serverEnvVars = (server as any).envVars;
+      if (serverEnvVars && Object.keys(serverEnvVars).length > 0) {
+        setEnvVarsInput(Object.entries(serverEnvVars).map(([k, v]) => `${k}=${v}`).join('\n'));
       }
     }
   }, [server]);
@@ -326,6 +339,27 @@ const AddServerModal: React.FC<Props> = ({ server, existingTags = [], onSave, on
         console.error('[AddServerModal] Failed to auto-save key:', err);
         // Continue anyway - key will still work for this server
       }
+    }
+    
+    // Parse environment variables from input
+    if (data.protocol === 'ssh' && envVarsInput.trim()) {
+      const parsedEnvVars: { [key: string]: string } = {};
+      const lines = envVarsInput.split('\n');
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith('#')) continue;  // Skip empty lines and comments
+        const eqIndex = trimmed.indexOf('=');
+        if (eqIndex > 0) {
+          const key = trimmed.substring(0, eqIndex).trim();
+          const value = trimmed.substring(eqIndex + 1).trim();
+          if (key && /^[A-Z_][A-Z0-9_]*$/i.test(key)) {  // Valid env var name
+            parsedEnvVars[key] = value;
+          }
+        }
+      }
+      data.envVars = parsedEnvVars;
+    } else {
+      data.envVars = {};
     }
     
     onSave(data);
@@ -649,6 +683,69 @@ const AddServerModal: React.FC<Props> = ({ server, existingTags = [], onSave, on
                   </div>
                 </div>
               )}
+            </div>
+          )}
+
+          {/* Environment Variables (SSH only) */}
+          {data.protocol === 'ssh' && (
+            <div>
+              <label className="block text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">
+                {t('envVars') || 'Environment Variables'}
+                <span className="ml-2 text-gray-500 font-normal normal-case">(optional)</span>
+              </label>
+              <textarea
+                value={envVarsInput}
+                onChange={(e) => setEnvVarsInput(e.target.value)}
+                className="w-full px-3 py-2.5 bg-navy-900 border border-navy-600 rounded-lg text-sm text-white placeholder-gray-500 font-mono focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500 transition resize-none"
+                placeholder={`# One per line, KEY=VALUE format\nMY_VAR=value\nANOTHER_VAR=123`}
+                rows={3}
+              />
+              <p className="text-xs text-gray-500 mt-1.5">
+                {t('envVarsDesc') || 'Set environment variables on the remote shell (like ssh -o SetEnv)'}
+              </p>
+              {envVarsInput.trim() && (
+                <div className="mt-2 p-2.5 bg-teal-500/10 border border-teal-500/30 rounded-lg">
+                  <p className="text-xs text-teal-400">
+                    ✓ {Object.keys(envVarsInput.split('\n').filter(l => l.trim() && !l.trim().startsWith('#') && l.includes('=')).reduce((acc, l) => {
+                      const [k] = l.split('=');
+                      if (k && k.trim()) acc[k.trim()] = true;
+                      return acc;
+                    }, {} as Record<string, boolean>)).length} {t('envVarsConfigured') || 'variable(s) configured'}
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Default Paths for SFTP (SSH/FTP/FTPS) */}
+          {(data.protocol === 'ssh' || data.protocol === 'ftp' || data.protocol === 'ftps') && (
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">
+                  {t('defaultRemotePath') || 'Default Remote Path'}
+                  <span className="ml-2 text-gray-500 font-normal normal-case">(optional)</span>
+                </label>
+                <input
+                  type="text"
+                  value={data.defaultRemotePath}
+                  onChange={(e) => setData(prev => ({ ...prev, defaultRemotePath: e.target.value }))}
+                  className="w-full px-3 py-2.5 bg-navy-900 border border-navy-600 rounded-lg text-sm text-white placeholder-gray-500 font-mono focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500 transition"
+                  placeholder="/home/user or /var/www"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">
+                  {t('defaultLocalPath') || 'Default Local Path'}
+                  <span className="ml-2 text-gray-500 font-normal normal-case">(optional)</span>
+                </label>
+                <input
+                  type="text"
+                  value={data.defaultLocalPath}
+                  onChange={(e) => setData(prev => ({ ...prev, defaultLocalPath: e.target.value }))}
+                  className="w-full px-3 py-2.5 bg-navy-900 border border-navy-600 rounded-lg text-sm text-white placeholder-gray-500 font-mono focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500 transition"
+                  placeholder="/home/user/Downloads"
+                />
+              </div>
             </div>
           )}
 

@@ -17,6 +17,9 @@ export interface ServerConfig {
   lastConnected?: number;
   knockEnabled?: boolean;
   knockSequence?: number[];
+  envVars?: { [key: string]: string };  // Environment variables for SSH
+  defaultRemotePath?: string;  // Default remote path for SFTP
+  defaultLocalPath?: string;   // Default local path for SFTP
 }
 
 // Fields that contain sensitive data and should be encrypted

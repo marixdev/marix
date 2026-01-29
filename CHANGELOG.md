@@ -34,6 +34,18 @@ All notable changes to Marix SSH Client will be documented in this file.
   - Display paste.dev link with Copy and Open buttons
   - Uses paste.ee API with authentication
 
+- **SSH Environment Variables**: Set environment variables for SSH sessions
+  - Similar to `ssh -o SetEnv VAR=value` in CLI
+  - Configure in Add/Edit Server modal
+  - Format: `KEY=VALUE`, one per line
+  - Variables injected after shell login via `export` commands
+
+- **Default SFTP Paths**: Pre-configure default paths for SFTP file browser
+  - **Default Remote Path**: Auto-navigate to specified remote directory (e.g., `/var/www`)
+  - **Default Local Path**: Auto-navigate to specified local directory (e.g., `~/Downloads`)
+  - Configure per server in Add/Edit modal
+  - Applies to SSH, FTP, and FTPS connections
+
 ### Fixed
 - **Disk Benchmark on Real Disk**: Fixed disk tests running on RAM instead of real disk
   - Detected `/tmp` mounted as tmpfs (RAM) showing unrealistic speeds (5.7 GB/s)

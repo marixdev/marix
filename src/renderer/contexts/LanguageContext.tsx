@@ -1068,6 +1068,15 @@ export interface Translations {
   localSecurityWarning: string;
   githubSecurityWarning: string;
   
+  // Environment Variables
+  envVars: string;
+  envVarsDesc: string;
+  envVarsConfigured: string;
+  
+  // Default Paths
+  defaultRemotePath: string;
+  defaultLocalPath: string;
+  
   portKnocking: string;
   portKnockingDesc: string;
   knockSequence: string;
