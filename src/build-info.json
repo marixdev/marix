@@ -1,12 +1,12 @@
 {
-  "commitSha": "unknown",
-  "commitShort": "unknown",
-  "branch": "unknown",
-  "buildTime": "2026-01-29T04:58:20.852Z",
-  "buildTimestamp": 1769662700852,
+  "commitSha": "122ad5dd4c53af64676df227f173f5bebd01ece6",
+  "commitShort": "122ad5d",
+  "branch": "main",
+  "buildTime": "2026-02-26T10:55:39.491Z",
+  "buildTimestamp": 1772103339492,
   "runId": "local",
   "repository": "marixdev/marix",
-  "nodeVersion": "v22.21.1",
-  "platform": "linux",
+  "nodeVersion": "v22.22.0",
+  "platform": "win32",
   "arch": "x64"
 }

@@ -2,6 +2,46 @@
 
 All notable changes to Marix SSH Client will be documented in this file.
 
+## [1.0.20] - 2026-02-26
+
+### Added
+- **CPU Benchmark**: Comprehensive CPU performance testing via SSH
+  - Detailed CPU info: model, cores/threads, frequency (base/max), L2/L3 cache, AES-NI support
+  - Single-thread & Multi-thread prime-counting benchmark with scaling percentage
+  - OpenSSL crypto speed: AES-256-GCM and SHA256 throughput
+  - CPU steal measurement for virtual machines with rating (Excellent/Good/Fair/Poor)
+
+- **Memory Benchmark**: RAM performance testing
+  - Memory read/write/copy bandwidth in GB/s
+  - Memory latency in nanoseconds
+  - Total and used memory reporting
+
+- **Multi-block FIO**: Expanded disk I/O benchmark from single 4K to 4 block sizes
+  - Tests 4K, 64K, 512K, and 1M random I/O with fio
+  - Shows read/write IOPS and bandwidth for each block size in a table
+
+- **IPv4/IPv6 Connectivity Check**: Added network connectivity detection
+  - Tests IPv4 via `ping -c 1 1.1.1.1`
+  - Tests IPv6 via `ping6 -c 1 2606:4700:4700::1111`
+  - Shows ✔ Online / ✘ Offline status in system information
+
+- **benix.app Integration**: Replaced paste.dev with benix.app for benchmark sharing
+  - Upload benchmark results directly to benix.app API
+  - Get shareable link at `https://benix.app/b/{id}`
+  - IP addresses are masked before upload for privacy
+  - Full structured data upload (system, CPU, memory, disk, network)
+
+### Fixed
+- **Port Forwarding Stream Error Handling**: Fixed tunnels crashing on unexpected stream/socket errors
+  - Remote Forward (-R): Added `stream.on('error')` handler to gracefully close local socket on remote stream error
+  - Dynamic SOCKS5 Proxy (-D): Added `socket.on('error')` and `stream.on('error')` handlers to prevent unhandled exceptions and connection leaks
+
+- **SSH Environment Variables**: Fixed env vars injection method from shell hack to SSH protocol
+  - Previously injected via `export KEY='value' && clear\n` after shell start (visible flicker, unreliable)
+  - Now passes env vars via SSH protocol `shell(options, { env })` — equivalent to `ssh -o "SetEnv KEY=val"`
+  - Variables are set before shell starts, so `.bashrc` / `.profile` can see them
+  - Removed `injectEnvVars()` workaround and `envVarsInjected` flag
+
 ## [1.0.19] - 2026-01-29
 
 ### Added

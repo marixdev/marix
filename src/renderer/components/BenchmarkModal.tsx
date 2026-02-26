@@ -3,17 +3,21 @@
  * 
  * Displays server benchmark results in a beautiful modal:
  * - System Information
+ * - CPU Benchmark
+ * - Memory Benchmark
  * - Disk Performance
  * - Network Speed
  * 
  * Shows real-time progress during benchmark execution.
- * Supports export to HTML, JSON, PNG, TXT and upload to paste.dev
+ * Supports export to HTML, JSON, PNG, TXT and upload to benix.app
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useLanguage } from '../contexts/LanguageContext';
 
 const { ipcRenderer } = window.electron;
+
+const BENIX_API = 'https://api.benix.app';
 
 // Types matching BenchmarkService
 interface SystemInfo {
@@ -48,6 +52,39 @@ interface SystemInfo {
     mountPoint: string;
   };
   virtualization: string;
+  ipv4: boolean;
+  ipv6: boolean;
+}
+
+interface CPUBenchmark {
+  model: string;
+  cores: number;
+  threads: number;
+  frequency: { base: number; max?: number };
+  cache: { l2: string; l3: string };
+  virtualization: string;
+  isVirtual: boolean;
+  hasAESNI: boolean;
+  benchmark: {
+    singleThread: number;
+    multiThread: number;
+    scaling: number;
+  };
+  crypto: {
+    aes256gcm: number;
+    sha256: number;
+  };
+  cpuSteal?: number;
+  stealRating?: 'excellent' | 'good' | 'warning' | 'critical';
+}
+
+interface MemoryBenchmark {
+  total: string;
+  used: string;
+  read: number;
+  write: number;
+  copy: number;
+  latency: number;
 }
 
 interface DiskBenchmark {
@@ -55,10 +92,12 @@ interface DiskBenchmark {
   sequentialRead: { speed: string; rawBytes: number };
   ioping: string;
   fio?: {
-    readIops: string;
-    writeIops: string;
-    readBw: string;
-    writeBw: string;
+    [blockSize: string]: {
+      readIops: string;
+      writeIops: string;
+      readBw: string;
+      writeBw: string;
+    };
   };
 }
 
@@ -76,6 +115,8 @@ interface NetworkBenchmark {
 
 interface BenchmarkResult {
   systemInfo: SystemInfo | null;
+  cpuBenchmark: CPUBenchmark | null;
+  memoryBenchmark: MemoryBenchmark | null;
   diskBenchmark: DiskBenchmark | null;
   networkBenchmark: NetworkBenchmark | null;
   startTime: number;
@@ -85,7 +126,7 @@ interface BenchmarkResult {
 }
 
 interface BenchmarkProgress {
-  phase: 'system' | 'disk' | 'network' | 'complete';
+  phase: 'system' | 'cpu' | 'memory' | 'disk' | 'network' | 'complete';
   message: string;
   percent: number;
 }
@@ -110,15 +151,12 @@ const BenchmarkModal: React.FC<Props> = ({
   const [progress, setProgress] = useState<BenchmarkProgress | null>(null);
   const [result, setResult] = useState<BenchmarkResult | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [uploadToPaste, setUploadToPaste] = useState(false);
+  const [uploadToBenix, setUploadToBenix] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [exportMessage, setExportMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-  const [pasteUrl, setPasteUrl] = useState<string | null>(null);
-  const [isUploadingToPaste, setIsUploadingToPaste] = useState(false);
+  const [benixUrl, setBenixUrl] = useState<string | null>(null);
+  const [isUploadingToBenix, setIsUploadingToBenix] = useState(false);
   const resultRef = useRef<HTMLDivElement>(null);
-
-  // Paste.dev API Key
-  const PASTE_API_KEY = 'aIPR6zVTi2jsA7zoJpl5i9IuGqa4mzhegShiU8h8S';
 
   // Reset state when modal opens
   useEffect(() => {
@@ -128,7 +166,7 @@ const BenchmarkModal: React.FC<Props> = ({
       setProgress(null);
       setIsRunning(false);
       setExportMessage(null);
-      setPasteUrl(null);
+      setBenixUrl(null);
     }
   }, [isOpen]);
 
@@ -204,6 +242,51 @@ const BenchmarkModal: React.FC<Props> = ({
       lines.push(`  Uptime        : ${res.systemInfo.uptime}`);
       lines.push(`  Load Average  : ${res.systemInfo.loadAverage}`);
       lines.push(`  Virtualization: ${res.systemInfo.virtualization}`);
+      const ipv4 = res.systemInfo.ipv4 ? '✔ Online' : '✘ Offline';
+      const ipv6 = res.systemInfo.ipv6 ? '✔ Online' : '✘ Offline';
+      lines.push(`  IPv4/IPv6     : ${ipv4} / ${ipv6}`);
+      lines.push('');
+    }
+
+    if (res.cpuBenchmark) {
+      const cpu = res.cpuBenchmark;
+      lines.push('┌────────────────────────────────────────────────────────────┐');
+      lines.push('│                    CPU BENCHMARK                           │');
+      lines.push('└────────────────────────────────────────────────────────────┘');
+      lines.push(`  Model         : ${cpu.model}`);
+      lines.push(`  Cores/Threads : ${cpu.cores} / ${cpu.threads}`);
+      const freqStr = cpu.frequency.max
+        ? `${cpu.frequency.base} MHz (Max: ${cpu.frequency.max} MHz)`
+        : `${cpu.frequency.base} MHz`;
+      lines.push(`  Frequency     : ${freqStr}`);
+      lines.push(`  Cache         : L2: ${cpu.cache.l2}, L3: ${cpu.cache.l3}`);
+      lines.push(`  AES-NI        : ${cpu.hasAESNI ? 'Yes' : 'No'}`);
+      lines.push('');
+      lines.push(`  Single-thread : ${cpu.benchmark.singleThread.toLocaleString()} ops/s`);
+      lines.push(`  Multi-thread  : ${cpu.benchmark.multiThread.toLocaleString()} ops/s`);
+      lines.push(`  Scaling       : ${cpu.benchmark.scaling}%`);
+      lines.push('');
+      const fmtCrypto = (b: number) => b >= 1e9 ? `${(b / 1e9).toFixed(2)} GB/s` : b >= 1e6 ? `${(b / 1e6).toFixed(2)} MB/s` : b > 0 ? `${b} B/s` : 'N/A';
+      lines.push(`  AES-256-GCM   : ${fmtCrypto(cpu.crypto.aes256gcm)}`);
+      lines.push(`  SHA256        : ${fmtCrypto(cpu.crypto.sha256)}`);
+      if (cpu.isVirtual && cpu.cpuSteal !== undefined) {
+        lines.push(`  CPU Steal     : ${cpu.cpuSteal}% (${cpu.stealRating})`);
+      }
+      lines.push('');
+    }
+
+    if (res.memoryBenchmark) {
+      const mem = res.memoryBenchmark;
+      lines.push('┌────────────────────────────────────────────────────────────┐');
+      lines.push('│                    MEMORY BENCHMARK                        │');
+      lines.push('└────────────────────────────────────────────────────────────┘');
+      lines.push(`  Total         : ${mem.total}`);
+      lines.push(`  Used          : ${mem.used}`);
+      lines.push('');
+      lines.push(`  Read          : ${mem.read.toFixed(2)} GB/s`);
+      lines.push(`  Write         : ${mem.write.toFixed(2)} GB/s`);
+      lines.push(`  Copy          : ${mem.copy.toFixed(2)} GB/s`);
+      lines.push(`  Latency       : ${mem.latency.toFixed(1)} ns`);
       lines.push('');
     }
 
@@ -214,13 +297,14 @@ const BenchmarkModal: React.FC<Props> = ({
       lines.push(`  Sequential Write : ${res.diskBenchmark.sequentialWrite.speed}`);
       lines.push(`  Sequential Read  : ${res.diskBenchmark.sequentialRead.speed}`);
       lines.push(`  I/O Latency      : ${res.diskBenchmark.ioping}`);
-      if (res.diskBenchmark.fio) {
+      if (res.diskBenchmark.fio && typeof res.diskBenchmark.fio === 'object') {
         lines.push('');
-        lines.push('  Random 4K IOPS (fio):');
-        lines.push(`    Read IOPS   : ${res.diskBenchmark.fio.readIops}`);
-        lines.push(`    Write IOPS  : ${res.diskBenchmark.fio.writeIops}`);
-        lines.push(`    Read BW     : ${res.diskBenchmark.fio.readBw}`);
-        lines.push(`    Write BW    : ${res.diskBenchmark.fio.writeBw}`);
+        lines.push('  FIO Random I/O:');
+        lines.push(`  ${'Block'.padEnd(10)} ${'Read IOPS'.padEnd(14)} ${'Write IOPS'.padEnd(14)} ${'Read BW'.padEnd(14)} Write BW`);
+        lines.push(`  ${'─'.repeat(66)}`);
+        for (const [bs, data] of Object.entries(res.diskBenchmark.fio)) {
+          lines.push(`  ${bs.padEnd(10)} ${data.readIops.padEnd(14)} ${data.writeIops.padEnd(14)} ${data.readBw.padEnd(14)} ${data.writeBw}`);
+        }
       }
       lines.push('');
     }
@@ -248,6 +332,7 @@ const BenchmarkModal: React.FC<Props> = ({
     lines.push(`  Duration: ${formatDuration(res.duration)}`);
     lines.push('');
     lines.push(`  Website : https://marix.dev`);
+    lines.push(`  Benchmark: https://benix.app`);
     lines.push(`  GitHub  : https://github.com/marixdev/marix`);
     lines.push(`  Generated by Marix SSH Client`);
     lines.push(divider);
@@ -262,12 +347,15 @@ const BenchmarkModal: React.FC<Props> = ({
       timestamp: new Date(res.startTime).toISOString(),
       duration: res.duration,
       systemInfo: res.systemInfo,
+      cpuBenchmark: res.cpuBenchmark,
+      memoryBenchmark: res.memoryBenchmark,
       diskBenchmark: res.diskBenchmark,
       networkBenchmark: res.networkBenchmark,
       errors: res.errors,
       meta: {
         generator: 'Marix SSH Client',
         website: 'https://marix.dev',
+        benchmark: 'https://benix.app',
         github: 'https://github.com/marixdev/marix'
       }
     }, null, 2);
@@ -422,6 +510,94 @@ const BenchmarkModal: React.FC<Props> = ({
                     <div class="info-row"><span class="info-label">Uptime</span><span class="info-value">${res.systemInfo.uptime}</span></div>
                     <div class="info-row"><span class="info-label">Load Average</span><span class="info-value">${res.systemInfo.loadAverage}</span></div>
                     <div class="info-row"><span class="info-label">Virtualization</span><span class="info-value">${res.systemInfo.virtualization}</span></div>
+                    <div class="info-row"><span class="info-label">IPv4</span><span class="info-value">${res.systemInfo.ipv4 ? '✔ Online' : '✘ Offline'}</span></div>
+                    <div class="info-row"><span class="info-label">IPv6</span><span class="info-value">${res.systemInfo.ipv6 ? '✔ Online' : '✘ Offline'}</span></div>
+                </div>
+            </div>
+        </div>
+        ` : ''}
+
+        ${res.cpuBenchmark ? `
+        <div class="section">
+            <div class="section-header">
+                <span class="icon">🧠</span>
+                <h2>CPU Benchmark</h2>
+            </div>
+            <div class="section-content">
+                <div class="info-grid">
+                    <div class="info-row"><span class="info-label">Model</span><span class="info-value">${res.cpuBenchmark.model}</span></div>
+                    <div class="info-row"><span class="info-label">Cores / Threads</span><span class="info-value">${res.cpuBenchmark.cores} / ${res.cpuBenchmark.threads}</span></div>
+                    <div class="info-row"><span class="info-label">Frequency</span><span class="info-value">${res.cpuBenchmark.frequency.base} MHz${res.cpuBenchmark.frequency.max ? ` (Max: ${res.cpuBenchmark.frequency.max} MHz)` : ''}</span></div>
+                    <div class="info-row"><span class="info-label">Cache</span><span class="info-value">L2: ${res.cpuBenchmark.cache.l2}, L3: ${res.cpuBenchmark.cache.l3}</span></div>
+                    <div class="info-row"><span class="info-label">AES-NI</span><span class="info-value">${res.cpuBenchmark.hasAESNI ? 'Yes ✔' : 'No ✘'}</span></div>
+                </div>
+                <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid rgba(255,255,255,0.08);">
+                    <div class="speed-cards">
+                        <div class="speed-card">
+                            <div class="icon">1️⃣</div>
+                            <div class="value">${res.cpuBenchmark.benchmark.singleThread.toLocaleString()}</div>
+                            <div class="label">Single-thread ops/s</div>
+                        </div>
+                        <div class="speed-card">
+                            <div class="icon">🔄</div>
+                            <div class="value">${res.cpuBenchmark.benchmark.multiThread.toLocaleString()}</div>
+                            <div class="label">Multi-thread ops/s</div>
+                        </div>
+                        <div class="speed-card">
+                            <div class="icon">📈</div>
+                            <div class="value">${res.cpuBenchmark.benchmark.scaling}%</div>
+                            <div class="label">Scaling</div>
+                        </div>
+                    </div>
+                </div>
+                <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid rgba(255,255,255,0.08);">
+                    <div style="font-size: 13px; color: #94a3b8; margin-bottom: 12px;">OpenSSL Crypto</div>
+                    <div class="info-grid">
+                        <div class="info-row"><span class="info-label">AES-256-GCM</span><span class="info-value">${(() => { const b = res.cpuBenchmark!.crypto.aes256gcm; return b >= 1e9 ? (b/1e9).toFixed(2)+' GB/s' : b >= 1e6 ? (b/1e6).toFixed(2)+' MB/s' : 'N/A'; })()}</span></div>
+                        <div class="info-row"><span class="info-label">SHA256</span><span class="info-value">${(() => { const b = res.cpuBenchmark!.crypto.sha256; return b >= 1e9 ? (b/1e9).toFixed(2)+' GB/s' : b >= 1e6 ? (b/1e6).toFixed(2)+' MB/s' : 'N/A'; })()}</span></div>
+                    </div>
+                </div>
+                ${res.cpuBenchmark.isVirtual && res.cpuBenchmark.cpuSteal !== undefined ? `
+                <div style="margin-top: 12px; padding: 12px; border-radius: 8px; background: rgba(245,158,11,0.1); border: 1px solid rgba(245,158,11,0.3);">
+                    <div style="font-size: 13px; color: #f59e0b;">CPU Steal: ${res.cpuBenchmark.cpuSteal}% (${res.cpuBenchmark.stealRating})</div>
+                </div>
+                ` : ''}
+            </div>
+        </div>
+        ` : ''}
+
+        ${res.memoryBenchmark ? `
+        <div class="section">
+            <div class="section-header">
+                <span class="icon">🧮</span>
+                <h2>Memory Benchmark</h2>
+            </div>
+            <div class="section-content">
+                <div class="info-grid" style="margin-bottom: 16px;">
+                    <div class="info-row"><span class="info-label">Total</span><span class="info-value">${res.memoryBenchmark.total}</span></div>
+                    <div class="info-row"><span class="info-label">Used</span><span class="info-value">${res.memoryBenchmark.used}</span></div>
+                </div>
+                <div class="fio-cards">
+                    <div class="fio-card" style="border: 1px solid rgba(20,184,166,0.3); background: rgba(20,184,166,0.1);">
+                        <div class="icon">📖</div>
+                        <div class="value" style="color: #14b8a6;">${res.memoryBenchmark.read.toFixed(2)}</div>
+                        <div class="label">Read (GB/s)</div>
+                    </div>
+                    <div class="fio-card" style="border: 1px solid rgba(59,130,246,0.3); background: rgba(59,130,246,0.1);">
+                        <div class="icon">✍️</div>
+                        <div class="value" style="color: #3b82f6;">${res.memoryBenchmark.write.toFixed(2)}</div>
+                        <div class="label">Write (GB/s)</div>
+                    </div>
+                    <div class="fio-card" style="border: 1px solid rgba(168,85,247,0.3); background: rgba(168,85,247,0.1);">
+                        <div class="icon">📋</div>
+                        <div class="value" style="color: #a855f7;">${res.memoryBenchmark.copy.toFixed(2)}</div>
+                        <div class="label">Copy (GB/s)</div>
+                    </div>
+                    <div class="fio-card" style="border: 1px solid rgba(245,158,11,0.3); background: rgba(245,158,11,0.1);">
+                        <div class="icon">⏱️</div>
+                        <div class="value" style="color: #f59e0b;">${res.memoryBenchmark.latency.toFixed(1)}</div>
+                        <div class="label">Latency (ns)</div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -451,31 +627,31 @@ const BenchmarkModal: React.FC<Props> = ({
                         <div class="label">I/O Latency</div>
                     </div>
                 </div>
-                ${res.diskBenchmark.fio ? `
+                ${res.diskBenchmark.fio && typeof res.diskBenchmark.fio === 'object' ? `
                 <div style="margin-top: 20px; padding-top: 16px; border-top: 1px solid rgba(255,255,255,0.08);">
-                    <div style="font-size: 13px; color: #94a3b8; margin-bottom: 12px;">Random 4K IOPS (fio)</div>
-                    <div class="fio-cards">
-                        <div class="fio-card">
-                            <div class="icon">📥</div>
-                            <div class="value">${res.diskBenchmark.fio.readIops}</div>
-                            <div class="label">Read IOPS</div>
-                        </div>
-                        <div class="fio-card">
-                            <div class="icon">📤</div>
-                            <div class="value">${res.diskBenchmark.fio.writeIops}</div>
-                            <div class="label">Write IOPS</div>
-                        </div>
-                        <div class="fio-card">
-                            <div class="icon">⬇️</div>
-                            <div class="value">${res.diskBenchmark.fio.readBw}</div>
-                            <div class="label">Read BW</div>
-                        </div>
-                        <div class="fio-card">
-                            <div class="icon">⬆️</div>
-                            <div class="value">${res.diskBenchmark.fio.writeBw}</div>
-                            <div class="label">Write BW</div>
-                        </div>
-                    </div>
+                    <div style="font-size: 13px; color: #94a3b8; margin-bottom: 12px;">FIO Random I/O</div>
+                    <table class="network-table">
+                        <thead>
+                            <tr>
+                                <th>Block</th>
+                                <th style="text-align:right">Read IOPS</th>
+                                <th style="text-align:right">Write IOPS</th>
+                                <th style="text-align:right">Read BW</th>
+                                <th style="text-align:right">Write BW</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${Object.entries(res.diskBenchmark.fio).map(([bs, d]: [string, any]) => `
+                            <tr>
+                                <td style="font-weight: 600;">${bs}</td>
+                                <td style="text-align:right; color:#22c55e">${d.readIops}</td>
+                                <td style="text-align:right; color:#3b82f6">${d.writeIops}</td>
+                                <td style="text-align:right; color:#22c55e">${d.readBw}</td>
+                                <td style="text-align:right; color:#3b82f6">${d.writeBw}</td>
+                            </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
                 </div>
                 ` : ''}
             </div>
@@ -521,6 +697,7 @@ const BenchmarkModal: React.FC<Props> = ({
 
         <div class="footer">
             <a href="https://marix.dev" target="_blank">marix.dev</a> | 
+            <a href="https://benix.app" target="_blank">benix.app</a> | 
             <a href="https://github.com/marixdev/marix" target="_blank">GitHub</a><br>
             Generated by Marix SSH Client
         </div>
@@ -530,65 +707,126 @@ const BenchmarkModal: React.FC<Props> = ({
     return html;
   }, [serverName]);
 
-  // Upload to paste.dev (API still uses paste.ee domain)
-  const uploadToPasteDev = async (content: string): Promise<string | null> => {
+  // Mask IP address for privacy: 103.22.103.33 → 103.22.**.33
+  const maskIp = (ip: string): string => {
+    if (!ip) return ip;
+    const parts = ip.split('.');
+    if (parts.length === 4) {
+      return `${parts[0]}.${parts[1]}.**. ${parts[3]}`;
+    }
+    // IPv6: mask middle segments
+    if (ip.includes(':')) {
+      const segs = ip.split(':');
+      if (segs.length > 4) {
+        return `${segs[0]}:${segs[1]}:**:**:${segs[segs.length - 1]}`;
+      }
+    }
+    return ip;
+  };
+
+  // Upload benchmark results to benix.app
+  const uploadToBenixApi = async (res: BenchmarkResult): Promise<string | null> => {
     try {
-      const response = await fetch('https://api.paste.ee/v1/pastes', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Auth-Token': PASTE_API_KEY
+      // Build benix-compatible payload
+      const payload: any = {
+        data: {
+          system: res.systemInfo ? {
+            os: res.systemInfo.os,
+            hostname: res.systemInfo.hostname,
+            kernel: res.systemInfo.kernel,
+            arch: res.systemInfo.arch,
+            cpu: res.systemInfo.cpu?.model || '',
+            cpuCores: res.systemInfo.cpu?.cores || '',
+            cpuFreq: res.systemInfo.cpu?.frequency || '',
+            memory: `${res.systemInfo.memory?.used || ''} / ${res.systemInfo.memory?.total || ''}`,
+            swap: `${res.systemInfo.swap?.used || ''} / ${res.systemInfo.swap?.total || ''}`,
+            disk: `${res.systemInfo.disk?.used || ''} / ${res.systemInfo.disk?.total || ''}`,
+            uptime: res.systemInfo.uptime || '',
+            loadAverage: res.systemInfo.loadAverage || '',
+            virtualization: res.systemInfo.virtualization || '',
+            ipv4: res.systemInfo.ipv4 ?? false,
+            ipv6: res.systemInfo.ipv6 ?? false
+          } : null,
+          cpu: res.cpuBenchmark ? {
+            model: res.cpuBenchmark.model,
+            cores: res.cpuBenchmark.cores || 0,
+            threads: res.cpuBenchmark.threads || 0,
+            frequency: res.cpuBenchmark.frequency,
+            cache: res.cpuBenchmark.cache,
+            hasAESNI: res.cpuBenchmark.hasAESNI,
+            singleThread: res.cpuBenchmark.benchmark.singleThread,
+            multiThread: res.cpuBenchmark.benchmark.multiThread,
+            scaling: res.cpuBenchmark.benchmark.scaling,
+            crypto: res.cpuBenchmark.crypto,
+            cpuSteal: res.cpuBenchmark.cpuSteal,
+            stealRating: res.cpuBenchmark.stealRating
+          } : null,
+          memory: res.memoryBenchmark ? {
+            total: res.memoryBenchmark.total,
+            used: res.memoryBenchmark.used,
+            read: res.memoryBenchmark.read,
+            write: res.memoryBenchmark.write,
+            copy: res.memoryBenchmark.copy,
+            latency: res.memoryBenchmark.latency
+          } : null,
+          disk: res.diskBenchmark ? {
+            sequentialWrite: res.diskBenchmark.sequentialWrite.speed,
+            sequentialRead: res.diskBenchmark.sequentialRead.speed,
+            ioping: res.diskBenchmark.ioping,
+            fio: res.diskBenchmark.fio || {}
+          } : null,
+          network: res.networkBenchmark ? {
+            publicIp: maskIp(res.networkBenchmark.publicIp || ''),
+            provider: res.networkBenchmark.provider,
+            tests: res.networkBenchmark.tests
+          } : null,
+          duration: res.duration
         },
-        body: JSON.stringify({
-          description: `Marix Benchmark - ${serverName} - ${new Date().toLocaleString()}`,
-          sections: [{
-            name: 'Benchmark Result',
-            syntax: 'text',
-            contents: content
-          }]
-        })
+        source: 'marix',
+        is_private: false
+      };
+
+      const response = await fetch(`${BENIX_API}/api/benchmarks`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
       });
 
       if (!response.ok) {
-        console.error('Paste.dev API error:', response.status, response.statusText);
+        console.error('Benix API error:', response.status, response.statusText);
         return null;
       }
 
       const data = await response.json();
-      if (data.link) {
-        // Convert paste.ee to paste.dev in the returned link
-        return data.link.replace('paste.ee', 'paste.dev');
-      }
-      if (data.id) {
-        return `https://paste.dev/p/${data.id}`;
+      if (data.success && data.id) {
+        return `https://benix.app/b/${data.id}`;
       }
       return null;
     } catch (err) {
-      console.error('Failed to upload to paste.dev:', err);
+      console.error('Failed to upload to benix.app:', err);
       return null;
     }
   };
 
-  // Auto-upload to paste.dev when benchmark completes (if user selected the option)
+  // Auto-upload to benix.app when benchmark completes (if user selected the option)
   useEffect(() => {
     const autoUpload = async () => {
-      if (result && uploadToPaste && !pasteUrl && !isUploadingToPaste) {
-        setIsUploadingToPaste(true);
+      if (result && uploadToBenix && !benixUrl && !isUploadingToBenix) {
+        setIsUploadingToBenix(true);
         try {
-          const content = generateTxtContent(result);
-          const url = await uploadToPasteDev(content);
+          const url = await uploadToBenixApi(result);
           if (url) {
-            setPasteUrl(url);
+            setBenixUrl(url);
           }
         } catch (err) {
-          console.error('Auto-upload to paste.dev failed:', err);
+          console.error('Auto-upload to benix.app failed:', err);
         } finally {
-          setIsUploadingToPaste(false);
+          setIsUploadingToBenix(false);
         }
       }
     };
     autoUpload();
-  }, [result, uploadToPaste, pasteUrl, isUploadingToPaste, generateTxtContent]);
+  }, [result, uploadToBenix, benixUrl, isUploadingToBenix]);
 
   // Export handlers
   const handleExportTxt = async () => {
@@ -707,6 +945,65 @@ const BenchmarkModal: React.FC<Props> = ({
             <div style="display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.05);"><span style="color: #94a3b8;">Disk</span><span style="color: #ffffff;">${res.systemInfo.disk?.used || 'N/A'} / ${res.systemInfo.disk?.total || 'N/A'}</span></div>
             <div style="display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.05);"><span style="color: #94a3b8;">Uptime</span><span style="color: #ffffff;">${res.systemInfo.uptime || 'N/A'}</span></div>
             <div style="display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.05);"><span style="color: #94a3b8;">Virtualization</span><span style="color: #ffffff;">${res.systemInfo.virtualization || 'N/A'}</span></div>
+            <div style="display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.05);"><span style="color: #94a3b8;">IPv4</span><span style="color: #ffffff;">${res.systemInfo.ipv4 ? '✔ Online' : '✘ Offline'}</span></div>
+            <div style="display: flex; justify-content: space-between; padding: 6px 0;"><span style="color: #94a3b8;">IPv6</span><span style="color: #ffffff;">${res.systemInfo.ipv6 ? '✔ Online' : '✘ Offline'}</span></div>
+          </div>
+        </div>
+        ` : ''}
+        
+        ${res.cpuBenchmark ? `
+        <div style="background: rgba(15, 23, 42, 0.6); border-radius: 12px; padding: 20px; margin-bottom: 16px; border: 1px solid rgba(255,255,255,0.1);">
+          <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid rgba(255,255,255,0.1);">
+            <span style="font-size: 20px;">🧠</span>
+            <span style="font-size: 16px; font-weight: 600; color: #ffffff;">CPU Benchmark</span>
+          </div>
+          <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 16px;">
+            <div style="background: rgba(20,184,166,0.1); border-radius: 8px; padding: 16px; text-align: center; border: 1px solid rgba(20,184,166,0.3);">
+              <div style="font-size: 12px; color: #94a3b8; margin-bottom: 4px;">Single-thread</div>
+              <div style="font-size: 18px; font-weight: 600; color: #14b8a6;">${res.cpuBenchmark.benchmark.singleThread.toLocaleString()}</div>
+              <div style="font-size: 11px; color: #64748b;">ops/s</div>
+            </div>
+            <div style="background: rgba(59,130,246,0.1); border-radius: 8px; padding: 16px; text-align: center; border: 1px solid rgba(59,130,246,0.3);">
+              <div style="font-size: 12px; color: #94a3b8; margin-bottom: 4px;">Multi-thread</div>
+              <div style="font-size: 18px; font-weight: 600; color: #3b82f6;">${res.cpuBenchmark.benchmark.multiThread.toLocaleString()}</div>
+              <div style="font-size: 11px; color: #64748b;">ops/s</div>
+            </div>
+            <div style="background: rgba(168,85,247,0.1); border-radius: 8px; padding: 16px; text-align: center; border: 1px solid rgba(168,85,247,0.3);">
+              <div style="font-size: 12px; color: #94a3b8; margin-bottom: 4px;">Scaling</div>
+              <div style="font-size: 18px; font-weight: 600; color: #a855f7;">${res.cpuBenchmark.benchmark.scaling}%</div>
+              <div style="font-size: 11px; color: #64748b;">${res.cpuBenchmark.cores} cores</div>
+            </div>
+          </div>
+          <div style="font-size: 13px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+            <div style="display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.05);"><span style="color: #94a3b8;">AES-256-GCM</span><span style="color: #ffffff;">${(() => { const b = res.cpuBenchmark!.crypto.aes256gcm; return b >= 1e9 ? (b/1e9).toFixed(2)+' GB/s' : b >= 1e6 ? (b/1e6).toFixed(2)+' MB/s' : 'N/A'; })()}</span></div>
+            <div style="display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.05);"><span style="color: #94a3b8;">SHA256</span><span style="color: #ffffff;">${(() => { const b = res.cpuBenchmark!.crypto.sha256; return b >= 1e9 ? (b/1e9).toFixed(2)+' GB/s' : b >= 1e6 ? (b/1e6).toFixed(2)+' MB/s' : 'N/A'; })()}</span></div>
+          </div>
+        </div>
+        ` : ''}
+        
+        ${res.memoryBenchmark ? `
+        <div style="background: rgba(15, 23, 42, 0.6); border-radius: 12px; padding: 20px; margin-bottom: 16px; border: 1px solid rgba(255,255,255,0.1);">
+          <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid rgba(255,255,255,0.1);">
+            <span style="font-size: 20px;">🧮</span>
+            <span style="font-size: 16px; font-weight: 600; color: #ffffff;">Memory Benchmark</span>
+          </div>
+          <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;">
+            <div style="background: rgba(20,184,166,0.1); border-radius: 8px; padding: 14px; text-align: center; border: 1px solid rgba(20,184,166,0.3);">
+              <div style="font-size: 16px; font-weight: 600; color: #14b8a6;">${res.memoryBenchmark.read.toFixed(2)}</div>
+              <div style="font-size: 11px; color: #94a3b8;">Read (GB/s)</div>
+            </div>
+            <div style="background: rgba(59,130,246,0.1); border-radius: 8px; padding: 14px; text-align: center; border: 1px solid rgba(59,130,246,0.3);">
+              <div style="font-size: 16px; font-weight: 600; color: #3b82f6;">${res.memoryBenchmark.write.toFixed(2)}</div>
+              <div style="font-size: 11px; color: #94a3b8;">Write (GB/s)</div>
+            </div>
+            <div style="background: rgba(168,85,247,0.1); border-radius: 8px; padding: 14px; text-align: center; border: 1px solid rgba(168,85,247,0.3);">
+              <div style="font-size: 16px; font-weight: 600; color: #a855f7;">${res.memoryBenchmark.copy.toFixed(2)}</div>
+              <div style="font-size: 11px; color: #94a3b8;">Copy (GB/s)</div>
+            </div>
+            <div style="background: rgba(245,158,11,0.1); border-radius: 8px; padding: 14px; text-align: center; border: 1px solid rgba(245,158,11,0.3);">
+              <div style="font-size: 16px; font-weight: 600; color: #f59e0b;">${res.memoryBenchmark.latency.toFixed(1)}</div>
+              <div style="font-size: 11px; color: #94a3b8;">Latency (ns)</div>
+            </div>
           </div>
         </div>
         ` : ''}
@@ -734,27 +1031,31 @@ const BenchmarkModal: React.FC<Props> = ({
               <div style="font-size: 12px; color: #94a3b8; margin-top: 4px;">I/O Latency</div>
             </div>
           </div>
-          ${res.diskBenchmark.fio ? `
+          ${res.diskBenchmark.fio && typeof res.diskBenchmark.fio === 'object' ? `
           <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid rgba(255,255,255,0.1);">
-            <div style="font-size: 13px; color: #94a3b8; margin-bottom: 12px;">Random 4K IOPS (fio)</div>
-            <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;">
-              <div style="background: rgba(255,255,255,0.05); border-radius: 6px; padding: 12px; text-align: center;">
-                <div style="font-size: 14px; font-weight: 600; color: #22c55e;">${res.diskBenchmark.fio.readIops}</div>
-                <div style="font-size: 11px; color: #64748b;">Read IOPS</div>
-              </div>
-              <div style="background: rgba(255,255,255,0.05); border-radius: 6px; padding: 12px; text-align: center;">
-                <div style="font-size: 14px; font-weight: 600; color: #3b82f6;">${res.diskBenchmark.fio.writeIops}</div>
-                <div style="font-size: 11px; color: #64748b;">Write IOPS</div>
-              </div>
-              <div style="background: rgba(255,255,255,0.05); border-radius: 6px; padding: 12px; text-align: center;">
-                <div style="font-size: 14px; font-weight: 600; color: #22c55e;">${res.diskBenchmark.fio.readBw}</div>
-                <div style="font-size: 11px; color: #64748b;">Read BW</div>
-              </div>
-              <div style="background: rgba(255,255,255,0.05); border-radius: 6px; padding: 12px; text-align: center;">
-                <div style="font-size: 14px; font-weight: 600; color: #3b82f6;">${res.diskBenchmark.fio.writeBw}</div>
-                <div style="font-size: 11px; color: #64748b;">Write BW</div>
-              </div>
-            </div>
+            <div style="font-size: 13px; color: #94a3b8; margin-bottom: 12px;">FIO Random I/O</div>
+            <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
+              <thead>
+                <tr style="border-bottom: 1px solid rgba(255,255,255,0.1);">
+                  <th style="text-align: left; padding: 6px 0; color: #64748b; font-weight: 500;">Block</th>
+                  <th style="text-align: right; padding: 6px 0; color: #64748b; font-weight: 500;">Read IOPS</th>
+                  <th style="text-align: right; padding: 6px 0; color: #64748b; font-weight: 500;">Write IOPS</th>
+                  <th style="text-align: right; padding: 6px 0; color: #64748b; font-weight: 500;">Read BW</th>
+                  <th style="text-align: right; padding: 6px 0; color: #64748b; font-weight: 500;">Write BW</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${Object.entries(res.diskBenchmark.fio).map(([bs, d]: [string, any]) => `
+                <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+                  <td style="padding: 6px 0; color: #ffffff; font-weight: 600;">${bs}</td>
+                  <td style="text-align: right; padding: 6px 0; color: #22c55e;">${d.readIops}</td>
+                  <td style="text-align: right; padding: 6px 0; color: #3b82f6;">${d.writeIops}</td>
+                  <td style="text-align: right; padding: 6px 0; color: #22c55e;">${d.readBw}</td>
+                  <td style="text-align: right; padding: 6px 0; color: #3b82f6;">${d.writeBw}</td>
+                </tr>
+                `).join('')}
+              </tbody>
+            </table>
           </div>
           ` : ''}
         </div>
@@ -799,6 +1100,8 @@ const BenchmarkModal: React.FC<Props> = ({
         
         <div style="text-align: center; padding-top: 16px; border-top: 1px solid rgba(255,255,255,0.1); font-size: 12px; color: #64748b;">
           <a href="https://marix.dev" style="color: #3b82f6; text-decoration: none;">marix.dev</a>
+          <span style="margin: 0 8px;">|</span>
+          <a href="https://benix.app" style="color: #3b82f6; text-decoration: none;">benix.app</a>
           <span style="margin: 0 8px;">|</span>
           <a href="https://github.com/marixdev/marix" style="color: #3b82f6; text-decoration: none;">GitHub</a>
           <div style="margin-top: 4px;">Generated by Marix SSH Client</div>
@@ -891,16 +1194,16 @@ const BenchmarkModal: React.FC<Props> = ({
                 {t('benchmarkDescription') || 'This will test system information, disk speed, and network performance on the remote server.'}
               </p>
               
-              {/* Upload to paste.dev option */}
+              {/* Upload to benix.app option */}
               <label className={`flex items-center gap-2 mb-6 cursor-pointer ${labelClass} hover:${textClass}`}>
                 <input
                   type="checkbox"
-                  checked={uploadToPaste}
-                  onChange={(e) => setUploadToPaste(e.target.checked)}
+                  checked={uploadToBenix}
+                  onChange={(e) => setUploadToBenix(e.target.checked)}
                   className="w-4 h-4 rounded border-gray-600 text-teal-500 focus:ring-teal-500 focus:ring-offset-0"
                 />
                 <span className="text-sm">
-                  {t('uploadToPaste') || 'Upload results to paste.dev (shareable link)'}
+                  {'Upload results to benix.app (shareable link)'}
                 </span>
               </label>
               
@@ -971,26 +1274,26 @@ const BenchmarkModal: React.FC<Props> = ({
           {/* Results */}
           {result && (
             <div className="space-y-6" ref={resultRef}>
-              {/* Paste.dev link section */}
-              {(pasteUrl || isUploadingToPaste) && (
+              {/* Benix.app link section */}
+              {(benixUrl || isUploadingToBenix) && (
                 <div className={`flex items-center gap-3 p-4 rounded-lg ${
                   isDark ? 'bg-blue-500/10 border border-blue-500/30' : 'bg-blue-50 border border-blue-200'
                 }`}>
                   <span className="text-xl">🔗</span>
                   <div className="flex-1 min-w-0">
                     <div className={`text-sm font-medium ${isDark ? 'text-blue-300' : 'text-blue-700'}`}>
-                      {isUploadingToPaste ? 'Uploading to paste.dev...' : 'Shared on paste.dev'}
+                      {isUploadingToBenix ? 'Uploading to benix.app...' : 'Shared on benix.app'}
                     </div>
-                    {pasteUrl && (
+                    {benixUrl && (
                       <div className="flex items-center gap-2 mt-1">
                         <code className={`text-xs px-2 py-1 rounded truncate ${
                           isDark ? 'bg-gray-800 text-gray-300' : 'bg-gray-100 text-gray-700'
                         }`}>
-                          {pasteUrl}
+                          {benixUrl}
                         </code>
                         <button
                           onClick={() => {
-                            navigator.clipboard.writeText(pasteUrl);
+                            navigator.clipboard.writeText(benixUrl);
                             setExportMessage({ type: 'success', text: 'Link copied to clipboard!' });
                           }}
                           className={`px-2 py-1 text-xs rounded transition ${
@@ -1000,7 +1303,7 @@ const BenchmarkModal: React.FC<Props> = ({
                           📋 Copy
                         </button>
                         <button
-                          onClick={() => window.open(pasteUrl, '_blank')}
+                          onClick={() => window.open(benixUrl, '_blank')}
                           className={`px-2 py-1 text-xs rounded transition ${
                             isDark ? 'bg-gray-700 hover:bg-gray-600 text-white' : 'bg-gray-200 hover:bg-gray-300 text-gray-800'
                           }`}
@@ -1010,7 +1313,7 @@ const BenchmarkModal: React.FC<Props> = ({
                       </div>
                     )}
                   </div>
-                  {isUploadingToPaste && (
+                  {isUploadingToBenix && (
                     <div className="animate-spin w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full"></div>
                   )}
                 </div>
@@ -1112,6 +1415,95 @@ const BenchmarkModal: React.FC<Props> = ({
                     <InfoRow label="Uptime" value={result.systemInfo.uptime} isDark={isDark} />
                     <InfoRow label="Load Average" value={result.systemInfo.loadAverage} isDark={isDark} />
                     <InfoRow label="Virtualization" value={result.systemInfo.virtualization} isDark={isDark} />
+                    <InfoRow label="IPv4" value={result.systemInfo.ipv4 ? '✔ Online' : '✘ Offline'} isDark={isDark} />
+                    <InfoRow label="IPv6" value={result.systemInfo.ipv6 ? '✔ Online' : '✘ Offline'} isDark={isDark} />
+                  </div>
+                </div>
+              )}
+
+              {/* CPU Benchmark */}
+              {result.cpuBenchmark && (
+                <div className={`rounded-lg border ${borderClass} overflow-hidden`}>
+                  <div className={`px-4 py-3 ${cardBgClass} border-b ${borderClass} flex items-center gap-2`}>
+                    <span>🧠</span>
+                    <span className="font-semibold">CPU Benchmark</span>
+                  </div>
+                  <div className="p-4">
+                    <div className="grid grid-cols-2 gap-4 mb-4">
+                      <InfoRow label="Model" value={result.cpuBenchmark.model} isDark={isDark} />
+                      <InfoRow label="Cores / Threads" value={`${result.cpuBenchmark.cores} / ${result.cpuBenchmark.threads}`} isDark={isDark} />
+                      <InfoRow label="Frequency" value={`${result.cpuBenchmark.frequency.base} MHz${result.cpuBenchmark.frequency.max ? ` (Max: ${result.cpuBenchmark.frequency.max} MHz)` : ''}`} isDark={isDark} />
+                      <InfoRow label="Cache" value={`L2: ${result.cpuBenchmark.cache.l2}, L3: ${result.cpuBenchmark.cache.l3}`} isDark={isDark} />
+                      <InfoRow label="AES-NI" value={result.cpuBenchmark.hasAESNI ? 'Yes ✔' : 'No ✘'} isDark={isDark} />
+                    </div>
+                    <div className={`border-t ${borderClass} pt-4`}>
+                      <div className="grid grid-cols-3 gap-4 mb-4">
+                        <SpeedCard
+                          icon="1️⃣"
+                          label="Single-thread (ops/s)"
+                          value={result.cpuBenchmark.benchmark.singleThread.toLocaleString()}
+                          isDark={isDark}
+                        />
+                        <SpeedCard
+                          icon="🔄"
+                          label="Multi-thread (ops/s)"
+                          value={result.cpuBenchmark.benchmark.multiThread.toLocaleString()}
+                          isDark={isDark}
+                        />
+                        <SpeedCard
+                          icon="📈"
+                          label="Scaling"
+                          value={`${result.cpuBenchmark.benchmark.scaling}%`}
+                          isDark={isDark}
+                        />
+                      </div>
+                    </div>
+                    <div className={`border-t ${borderClass} pt-4`}>
+                      <div className={`text-xs ${labelClass} mb-2 font-medium`}>OpenSSL Crypto</div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <InfoRow
+                          label="AES-256-GCM"
+                          value={(() => { const b = result.cpuBenchmark!.crypto.aes256gcm; return b >= 1e9 ? `${(b/1e9).toFixed(2)} GB/s` : b >= 1e6 ? `${(b/1e6).toFixed(2)} MB/s` : 'N/A'; })()}
+                          isDark={isDark}
+                        />
+                        <InfoRow
+                          label="SHA256"
+                          value={(() => { const b = result.cpuBenchmark!.crypto.sha256; return b >= 1e9 ? `${(b/1e9).toFixed(2)} GB/s` : b >= 1e6 ? `${(b/1e6).toFixed(2)} MB/s` : 'N/A'; })()}
+                          isDark={isDark}
+                        />
+                      </div>
+                    </div>
+                    {result.cpuBenchmark.isVirtual && result.cpuBenchmark.cpuSteal !== undefined && (
+                      <div className={`mt-4 p-3 rounded-lg ${
+                        result.cpuBenchmark.cpuSteal > 5 ? 'bg-red-500/10 border border-red-500/30' : 'bg-yellow-500/10 border border-yellow-500/30'
+                      }`}>
+                        <span className={`text-sm ${result.cpuBenchmark.cpuSteal > 5 ? 'text-red-400' : 'text-yellow-400'}`}>
+                          CPU Steal: {result.cpuBenchmark.cpuSteal}% ({result.cpuBenchmark.stealRating})
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Memory Benchmark */}
+              {result.memoryBenchmark && (
+                <div className={`rounded-lg border ${borderClass} overflow-hidden`}>
+                  <div className={`px-4 py-3 ${cardBgClass} border-b ${borderClass} flex items-center gap-2`}>
+                    <span>🧮</span>
+                    <span className="font-semibold">Memory Benchmark</span>
+                  </div>
+                  <div className="p-4">
+                    <div className="grid grid-cols-2 gap-4 mb-4">
+                      <InfoRow label="Total" value={result.memoryBenchmark.total} isDark={isDark} />
+                      <InfoRow label="Used" value={result.memoryBenchmark.used} isDark={isDark} />
+                    </div>
+                    <div className="grid grid-cols-4 gap-3">
+                      <SpeedCard icon="📖" label="Read (GB/s)" value={result.memoryBenchmark.read.toFixed(2)} isDark={isDark} />
+                      <SpeedCard icon="✍️" label="Write (GB/s)" value={result.memoryBenchmark.write.toFixed(2)} isDark={isDark} />
+                      <SpeedCard icon="📋" label="Copy (GB/s)" value={result.memoryBenchmark.copy.toFixed(2)} isDark={isDark} />
+                      <SpeedCard icon="⏱️" label="Latency (ns)" value={result.memoryBenchmark.latency.toFixed(1)} isDark={isDark} />
+                    </div>
                   </div>
                 </div>
               )}
@@ -1144,35 +1536,33 @@ const BenchmarkModal: React.FC<Props> = ({
                         isDark={isDark}
                       />
                     </div>
-                    {/* FIO Random 4K IOPS */}
-                    {result.diskBenchmark.fio && (
+                    {/* FIO Random I/O - Multi-block */}
+                    {result.diskBenchmark.fio && typeof result.diskBenchmark.fio === 'object' && Object.keys(result.diskBenchmark.fio).length > 0 && (
                       <>
-                        <div className={`text-xs ${labelClass} mb-2 font-medium`}>Random 4K IOPS (fio)</div>
-                        <div className="grid grid-cols-4 gap-3">
-                          <SpeedCard
-                            icon="📥"
-                            label="Read IOPS"
-                            value={result.diskBenchmark.fio.readIops}
-                            isDark={isDark}
-                          />
-                          <SpeedCard
-                            icon="📤"
-                            label="Write IOPS"
-                            value={result.diskBenchmark.fio.writeIops}
-                            isDark={isDark}
-                          />
-                          <SpeedCard
-                            icon="⬇️"
-                            label="Read BW"
-                            value={result.diskBenchmark.fio.readBw}
-                            isDark={isDark}
-                          />
-                          <SpeedCard
-                            icon="⬆️"
-                            label="Write BW"
-                            value={result.diskBenchmark.fio.writeBw}
-                            isDark={isDark}
-                          />
+                        <div className={`text-xs ${labelClass} mb-2 font-medium`}>FIO Random I/O</div>
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-sm">
+                            <thead>
+                              <tr className={`${labelClass} text-left`}>
+                                <th className="pb-2 font-medium">Block</th>
+                                <th className="pb-2 font-medium text-right">Read IOPS</th>
+                                <th className="pb-2 font-medium text-right">Write IOPS</th>
+                                <th className="pb-2 font-medium text-right">Read BW</th>
+                                <th className="pb-2 font-medium text-right">Write BW</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {Object.entries(result.diskBenchmark.fio).map(([bs, data]: [string, any]) => (
+                                <tr key={bs} className={`border-t ${borderClass}`}>
+                                  <td className="py-2 font-medium">{bs}</td>
+                                  <td className="py-2 text-right font-mono text-green-400">{data.readIops}</td>
+                                  <td className="py-2 text-right font-mono text-blue-400">{data.writeIops}</td>
+                                  <td className="py-2 text-right font-mono text-green-400">{data.readBw}</td>
+                                  <td className="py-2 text-right font-mono text-blue-400">{data.writeBw}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
                         </div>
                       </>
                     )}

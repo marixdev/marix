@@ -246,6 +246,11 @@ export class PortForwardingService {
           stream.end();
         });
 
+        stream.on('error', (err: Error) => {
+          console.error(`[PortForward] Remote stream error:`, err.message);
+          localSocket.end();
+        });
+
         stream.on('close', () => {
           localSocket.end();
           tunnel.config.connections = Math.max(0, (tunnel.config.connections || 1) - 1);
@@ -406,6 +411,8 @@ export class PortForwardingService {
                   };
 
                   socket.on('close', cleanup);
+                  socket.on('error', cleanup);
+                  stream.on('error', () => socket.end());
                   stream.on('close', () => socket.end());
                 }
               );

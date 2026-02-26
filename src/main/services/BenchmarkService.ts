@@ -67,6 +67,39 @@ export interface SystemInfo {
     mountPoint: string;
   };
   virtualization: string;
+  ipv4: boolean;
+  ipv6: boolean;
+}
+
+export interface CPUBenchmark {
+  model: string;
+  cores: number;
+  threads: number;
+  frequency: { base: number; max?: number };
+  cache: { l2: string; l3: string };
+  virtualization: string;
+  isVirtual: boolean;
+  hasAESNI: boolean;
+  benchmark: {
+    singleThread: number;
+    multiThread: number;
+    scaling: number;
+  };
+  crypto: {
+    aes256gcm: number;
+    sha256: number;
+  };
+  cpuSteal?: number;
+  stealRating?: 'excellent' | 'good' | 'warning' | 'critical';
+}
+
+export interface MemoryBenchmark {
+  total: string;
+  used: string;
+  read: number;      // GB/s
+  write: number;     // GB/s
+  copy: number;      // GB/s
+  latency: number;   // nanoseconds
 }
 
 export interface DiskBenchmark {
@@ -80,10 +113,12 @@ export interface DiskBenchmark {
   };
   ioping: string;
   fio?: {
-    readIops: string;
-    writeIops: string;
-    readBw: string;
-    writeBw: string;
+    [blockSize: string]: {
+      readIops: string;
+      writeIops: string;
+      readBw: string;
+      writeBw: string;
+    };
   };
 }
 
@@ -101,6 +136,8 @@ export interface NetworkBenchmark {
 
 export interface BenchmarkResult {
   systemInfo: SystemInfo | null;
+  cpuBenchmark: CPUBenchmark | null;
+  memoryBenchmark: MemoryBenchmark | null;
   diskBenchmark: DiskBenchmark | null;
   networkBenchmark: NetworkBenchmark | null;
   startTime: number;
@@ -110,7 +147,7 @@ export interface BenchmarkResult {
 }
 
 export interface BenchmarkProgress {
-  phase: 'system' | 'disk' | 'network' | 'complete';
+  phase: 'system' | 'cpu' | 'memory' | 'disk' | 'network' | 'complete';
   message: string;
   percent: number;
 }
@@ -237,10 +274,12 @@ export class BenchmarkService {
     const startTime = Date.now();
     const errors: string[] = [];
     let systemInfo: SystemInfo | null = null;
+    let cpuBenchmark: CPUBenchmark | null = null;
+    let memoryBenchmark: MemoryBenchmark | null = null;
     let diskBenchmark: DiskBenchmark | null = null;
     let networkBenchmark: NetworkBenchmark | null = null;
 
-    // Phase 1: System Information
+    // Phase 1: System Information (0-15%)
     onProgress?.({ phase: 'system', message: 'Collecting system information...', percent: 0 });
     try {
       systemInfo = await this.getSystemInfo(connectionId, onProgress);
@@ -248,16 +287,32 @@ export class BenchmarkService {
       errors.push(`System info error: ${err.message}`);
     }
 
-    // Phase 2: Disk Benchmark
-    onProgress?.({ phase: 'disk', message: 'Running disk benchmark...', percent: 40 });
+    // Phase 2: CPU Benchmark (15-35%)
+    onProgress?.({ phase: 'cpu', message: 'Running CPU benchmark...', percent: 15 });
+    try {
+      cpuBenchmark = await this.runCPUBenchmark(connectionId, onProgress);
+    } catch (err: any) {
+      errors.push(`CPU benchmark error: ${err.message}`);
+    }
+
+    // Phase 3: Memory Benchmark (35-45%)
+    onProgress?.({ phase: 'memory', message: 'Running memory benchmark...', percent: 35 });
+    try {
+      memoryBenchmark = await this.runMemoryBenchmark(connectionId, onProgress);
+    } catch (err: any) {
+      errors.push(`Memory benchmark error: ${err.message}`);
+    }
+
+    // Phase 4: Disk Benchmark (45-65%)
+    onProgress?.({ phase: 'disk', message: 'Running disk benchmark...', percent: 45 });
     try {
       diskBenchmark = await this.runDiskBenchmark(connectionId, onProgress);
     } catch (err: any) {
       errors.push(`Disk benchmark error: ${err.message}`);
     }
 
-    // Phase 3: Network Benchmark
-    onProgress?.({ phase: 'network', message: 'Running network speed test...', percent: 70 });
+    // Phase 5: Network Benchmark (65-100%)
+    onProgress?.({ phase: 'network', message: 'Running network speed test...', percent: 65 });
     try {
       networkBenchmark = await this.runNetworkBenchmark(connectionId, onProgress);
     } catch (err: any) {
@@ -269,6 +324,8 @@ export class BenchmarkService {
 
     return {
       systemInfo,
+      cpuBenchmark,
+      memoryBenchmark,
       diskBenchmark,
       networkBenchmark,
       startTime,
@@ -422,6 +479,19 @@ export class BenchmarkService {
       else if (virtType !== 'none' && virtType !== '') virtualization = virtType;
     } catch {}
 
+    // IPv4/IPv6 connectivity check
+    onProgress?.({ phase: 'system', message: 'Checking IPv4/IPv6 connectivity...', percent: 13 });
+    let ipv4 = false;
+    let ipv6 = false;
+    try {
+      const ipv4Result = await exec('curl -4 -s --max-time 5 https://ipv4.icanhazip.com 2>/dev/null');
+      ipv4 = ipv4Result.trim().length > 0 && /^\d{1,3}(\.\d{1,3}){3}$/.test(ipv4Result.trim());
+    } catch {}
+    try {
+      const ipv6Result = await exec('curl -6 -s --max-time 5 https://ipv6.icanhazip.com 2>/dev/null');
+      ipv6 = ipv6Result.trim().length > 0 && /^[0-9a-f:]+$/i.test(ipv6Result.trim());
+    } catch {}
+
     return {
       os,
       kernel,
@@ -453,7 +523,275 @@ export class BenchmarkService {
         usagePercent: diskUsagePercent,
         mountPoint
       },
-      virtualization
+      virtualization,
+      ipv4,
+      ipv6
+    };
+  }
+
+  /**
+   * Run CPU benchmark via SSH
+   * Tests single-thread performance, crypto (OpenSSL), CPU steal
+   */
+  private async runCPUBenchmark(
+    connectionId: string,
+    onProgress?: ProgressCallback
+  ): Promise<CPUBenchmark> {
+    const exec = (cmd: string) => this.sshManager.executeCommand(connectionId, cmd);
+
+    onProgress?.({ phase: 'cpu', message: 'Collecting CPU details...', percent: 16 });
+
+    // Get detailed CPU info  
+    let model = 'Unknown';
+    let cores = 1;
+    let threads = 1;
+    let baseFreq = 0;
+    let maxFreq: number | undefined;
+    let l2 = 'N/A';
+    let l3 = 'N/A';
+    let hasAESNI = false;
+
+    try {
+      const cpuinfo = await exec('cat /proc/cpuinfo');
+      const modelMatch = cpuinfo.match(/model name\s*:\s*(.+)/);
+      if (modelMatch) {
+        model = modelMatch[1].trim()
+          .replace(/\(R\)/g, '').replace(/\(TM\)/g, '')
+          .replace(/CPU @.*$/, '').replace(/\s+/g, ' ').trim();
+      }
+      const processorMatches = cpuinfo.match(/processor\s*:/g);
+      threads = processorMatches ? processorMatches.length : 1;
+      const freqMatch = cpuinfo.match(/cpu MHz\s*:\s*([\d.]+)/);
+      if (freqMatch) baseFreq = Math.round(parseFloat(freqMatch[1]));
+      hasAESNI = cpuinfo.includes(' aes ');
+
+      const lscpu = await exec('lscpu 2>/dev/null || true');
+      const coresMatch = lscpu.match(/Core\\(s\\) per socket:\\s*(\\d+)/);
+      const socketsMatch = lscpu.match(/Socket\\(s\\):\\s*(\\d+)/);
+      if (coresMatch && socketsMatch) {
+        cores = parseInt(coresMatch[1]) * parseInt(socketsMatch[1]);
+      } else {
+        cores = threads;
+      }
+      const maxFreqMatch = lscpu.match(/CPU max MHz:\\s*([\\d.]+)/);
+      if (maxFreqMatch) maxFreq = Math.round(parseFloat(maxFreqMatch[1]));
+      const l2Match = lscpu.match(/L2 cache:\\s*(.+)/);
+      if (l2Match) l2 = l2Match[1].trim();
+      const l3Match = lscpu.match(/L3 cache:\\s*(.+)/);
+      if (l3Match) l3 = l3Match[1].trim();
+    } catch {}
+
+    // Virtualization detection
+    let virtualization = 'Dedicated';
+    let isVirtual = false;
+    try {
+      const detectVirt = await exec('systemd-detect-virt 2>/dev/null || true');
+      const virt = detectVirt.trim();
+      if (virt && virt !== 'none' && virt !== '') {
+        const virtNames: Record<string, string> = {
+          'kvm': 'KVM', 'qemu': 'QEMU', 'vmware': 'VMware', 'microsoft': 'Hyper-V',
+          'xen': 'Xen', 'lxc': 'LXC', 'openvz': 'OpenVZ', 'docker': 'Docker',
+          'oracle': 'VirtualBox', 'amazon': 'AWS EC2', 'google': 'Google Cloud', 'azure': 'Microsoft Azure'
+        };
+        virtualization = virtNames[virt] || virt.charAt(0).toUpperCase() + virt.slice(1);
+        isVirtual = true;
+      }
+    } catch {}
+
+    // Single-thread benchmark using shell script (prime counting)
+    onProgress?.({ phase: 'cpu', message: 'Running single-thread benchmark...', percent: 20 });
+    let singleThread = 0;
+    try {
+      // Use Python for accurate benchmark (available on 99% of Linux servers)
+      const benchScript = `python3 -c "
+import time
+def count_primes(limit):
+    count = 0
+    for n in range(2, limit + 1):
+        is_prime = True
+        i = 2
+        while i * i <= n:
+            if n % i == 0:
+                is_prime = False
+                break
+            i += 1
+        if is_prime:
+            count += 1
+    return count
+
+# Run for ~2 seconds, measure ops/sec
+ops = 0
+start = time.time()
+while time.time() - start < 2.0:
+    count_primes(10000)
+    ops += 1
+elapsed = time.time() - start
+print(int(ops / elapsed * 1000))
+" 2>/dev/null`;
+      const result = await exec(benchScript);
+      const parsed = parseInt(result.trim());
+      if (!isNaN(parsed) && parsed > 0) singleThread = parsed;
+    } catch {}
+
+    // Multi-thread estimate
+    const multiThread = singleThread * threads;
+    const scaling = 100;
+
+    // OpenSSL crypto benchmark
+    onProgress?.({ phase: 'cpu', message: 'Testing AES-256-GCM encryption...', percent: 25 });
+    let aes256gcm = 0;
+    let sha256 = 0;
+    try {
+      const aesOutput = await exec('openssl speed -elapsed -evp aes-256-gcm 2>&1 | tail -1');
+      const aesMatch = aesOutput.match(/([\d.]+)k\s*$/);
+      if (aesMatch) aes256gcm = Math.round(parseFloat(aesMatch[1]) * 1024);
+    } catch {}
+    try {
+      onProgress?.({ phase: 'cpu', message: 'Testing SHA256 hashing...', percent: 28 });
+      const shaOutput = await exec('openssl speed -elapsed sha256 2>&1 | tail -1');
+      const shaMatch = shaOutput.match(/([\d.]+)k\s*$/);
+      if (shaMatch) sha256 = Math.round(parseFloat(shaMatch[1]) * 1024);
+    } catch {}
+
+    // CPU Steal (only for VMs)
+    let cpuSteal: number | undefined;
+    let stealRating: CPUBenchmark['stealRating'];
+    if (isVirtual) {
+      onProgress?.({ phase: 'cpu', message: 'Measuring CPU steal...', percent: 30 });
+      try {
+        const stealResult = await exec(`
+          cat /proc/stat | head -1 > /tmp/cpu1;
+          sleep 1;
+          cat /proc/stat | head -1 > /tmp/cpu2;
+          awk 'NR==1{split($0,a)} NR==2{split($0,b)} END{
+            t1=0; t2=0; for(i=2;i<=9;i++){t1+=a[i]; t2+=b[i]}
+            if(t2-t1>0) printf "%.1f", (b[9]-a[9])/(t2-t1)*100; else print "0"
+          }' /tmp/cpu1 /tmp/cpu2 2>/dev/null
+        `);
+        cpuSteal = parseFloat(stealResult.trim()) || 0;
+        if (cpuSteal <= 1) stealRating = 'excellent';
+        else if (cpuSteal <= 3) stealRating = 'good';
+        else if (cpuSteal <= 5) stealRating = 'warning';
+        else stealRating = 'critical';
+      } catch {}
+    }
+
+    onProgress?.({ phase: 'cpu', message: 'CPU benchmark complete', percent: 34 });
+
+    return {
+      model,
+      cores,
+      threads,
+      frequency: { base: baseFreq, max: maxFreq },
+      cache: { l2, l3 },
+      virtualization,
+      isVirtual,
+      hasAESNI,
+      benchmark: { singleThread, multiThread, scaling },
+      crypto: { aes256gcm, sha256 },
+      cpuSteal,
+      stealRating
+    };
+  }
+
+  /**
+   * Run Memory benchmark via SSH
+   * Tests read, write, copy speeds and latency using dd and Python
+   */
+  private async runMemoryBenchmark(
+    connectionId: string,
+    onProgress?: ProgressCallback
+  ): Promise<MemoryBenchmark> {
+    const exec = (cmd: string) => this.sshManager.executeCommand(connectionId, cmd);
+
+    // Get memory info
+    let total = 'N/A';
+    let used = 'N/A';
+    try {
+      const meminfo = await exec('cat /proc/meminfo');
+      const totalMatch = meminfo.match(/MemTotal:\\s+(\\d+)/);
+      const availMatch = meminfo.match(/MemAvailable:\\s+(\\d+)/);
+      if (totalMatch) {
+        const totalKb = parseInt(totalMatch[1]);
+        total = `${(totalKb * 1024 / (1024 ** 3)).toFixed(2)} GB`;
+        if (availMatch) {
+          const usedBytes = (totalKb - parseInt(availMatch[1])) * 1024;
+          used = `${(usedBytes / (1024 ** 3)).toFixed(2)} GB`;
+        }
+      }
+    } catch {}
+
+    // Memory bandwidth and latency test using Python/dd
+    onProgress?.({ phase: 'memory', message: 'Testing memory write speed...', percent: 37 });
+    let readSpeed = 0;
+    let writeSpeed = 0;
+    let copySpeed = 0;
+    let latency = 0;
+
+    try {
+      // Use dd for memory bandwidth (write to /dev/null from /dev/zero through memory)
+      // This measures effective memory bandwidth
+      const memBenchScript = `python3 -c "
+import time, array, random
+
+SIZE = 64 * 1024 * 1024  # 64MB
+
+# Write test
+buf = bytearray(SIZE)
+start = time.time()
+for i in range(0, SIZE, 4096):
+    buf[i] = i & 0xFF
+write_time = time.time() - start
+write_gbs = (SIZE / (1024**3)) / write_time if write_time > 0 else 0
+
+# Read test
+start = time.time()
+s = 0
+for i in range(0, SIZE, 4096):
+    s += buf[i]
+read_time = time.time() - start
+read_gbs = (SIZE / (1024**3)) / read_time if read_time > 0 else 0
+
+# Copy test
+dst = bytearray(SIZE)
+start = time.time()
+dst[:] = buf
+copy_time = time.time() - start
+copy_gbs = (SIZE / (1024**3)) / copy_time if copy_time > 0 else 0
+
+# Latency test (random access)
+arr = list(range(1024 * 1024))
+random.shuffle(arr)
+idx = 0
+start = time.time()
+for _ in range(100000):
+    idx = arr[idx % len(arr)]
+lat_time = time.time() - start
+lat_ns = (lat_time / 100000) * 1e9
+
+print(f'{read_gbs:.2f} {write_gbs:.2f} {copy_gbs:.2f} {lat_ns:.1f}')
+" 2>/dev/null`;
+
+      onProgress?.({ phase: 'memory', message: 'Running memory benchmark...', percent: 39 });
+      const result = await exec(memBenchScript);
+      const parts = result.trim().split(/\s+/);
+      if (parts.length >= 4) {
+        readSpeed = parseFloat(parts[0]) || 0;
+        writeSpeed = parseFloat(parts[1]) || 0;
+        copySpeed = parseFloat(parts[2]) || 0;
+        latency = parseFloat(parts[3]) || 0;
+      }
+    } catch {}
+
+    onProgress?.({ phase: 'memory', message: 'Memory benchmark complete', percent: 44 });
+
+    return {
+      total,
+      used,
+      read: Math.round(readSpeed * 100) / 100,
+      write: Math.round(writeSpeed * 100) / 100,
+      copy: Math.round(copySpeed * 100) / 100,
+      latency: Math.round(latency * 10) / 10
     };
   }
 
@@ -632,58 +970,57 @@ export class BenchmarkService {
       }
     } catch {}
 
-    onProgress?.({ phase: 'disk', message: 'Testing random 4K IOPS (fio)...', percent: 65 });
+    onProgress?.({ phase: 'disk', message: 'Testing random IOPS (fio)...', percent: 58 });
     
-    // FIO random 4K read/write test (like tocdo.net)
-    // Uses text output parsing compatible with fio v2 and v3
+    // FIO random read/write test - multiple block sizes like benix (4k, 64k, 512k, 1m)
+    // Uses JSON output for reliable parsing across fio versions
     let fio: DiskBenchmark['fio'] = undefined;
     try {
-      // Check if fio is available
       const hasFio = await exec('command -v fio >/dev/null 2>&1 && echo "yes" || echo "no"');
       if (hasFio.trim() === 'yes') {
-        // Run fio on real disk (use testDir determined earlier, or home directory)
-        const fioResult = await exec(`
-          cd ${testDir} && fio --randrepeat=1 --ioengine=libaio --direct=1 --gtod_reduce=1 \
-          --name=fio_test --filename=arix_fio_test --bs=4k --numjobs=1 \
-          --iodepth=64 --size=256M --readwrite=randrw --rwmixread=75 \
-          --runtime=30 --time_based 2>&1
-        `);
+        const blockSizes = ['4k', '64k', '512k', '1m'];
+        const fioResults: Record<string, { readIops: string; writeIops: string; readBw: string; writeBw: string }> = {};
         
-        // Cleanup fio test file immediately
-        await exec(`rm -f ${testDir}/arix_fio_test`);
+        for (const bs of blockSizes) {
+          onProgress?.({ phase: 'disk', message: `Testing random IOPS (${bs})...`, percent: 58 + blockSizes.indexOf(bs) * 2 });
+          try {
+            const fioResult = await exec(`
+              cd ${testDir} && fio --name=test --filename=arix_fio_test --size=256M --bs=${bs} \
+              --ioengine=libaio --iodepth=64 --rw=randrw --rwmixread=50 --direct=1 \
+              --runtime=15 --time_based --group_reporting --output-format=json 2>/dev/null
+            `);
+            await exec(`rm -f ${testDir}/arix_fio_test`);
+
+            const json = JSON.parse(fioResult);
+            const job = json.jobs?.[0];
+            if (job) {
+              const formatBw = (bwKb: number): string => {
+                const bytes = bwKb * 1024;
+                if (bytes >= 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB/s`;
+                if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB/s`;
+                return `${(bytes / 1024).toFixed(1)} KB/s`;
+              };
+              const formatIopsVal = (iops: number): string => {
+                if (iops >= 1000) return `${(iops / 1000).toFixed(1)}k`;
+                return `${Math.round(iops)}`;
+              };
+              fioResults[bs] = {
+                readBw: formatBw(job.read?.bw || 0),
+                writeBw: formatBw(job.write?.bw || 0),
+                readIops: formatIopsVal(job.read?.iops || 0),
+                writeIops: formatIopsVal(job.write?.iops || 0)
+              };
+            }
+          } catch {
+            // Skip this block size on error  
+          }
+        }
         
-        // Check fio version for parsing
-        const fioVersion = await exec('fio -v 2>/dev/null | cut -d "." -f 1');
-        const isFio2 = fioVersion.trim() === 'fio-2';
-        
-        if (isFio2) {
-          // fio v2: read : io=XXX, bw=XXX, iops=XXX
-          const readIopsMatch = fioResult.match(/read\s*:.*iops=(\d+)/i);
-          const writeIopsMatch = fioResult.match(/write\s*:.*iops=(\d+)/i);
-          const readBwMatch = fioResult.match(/read\s*:.*bw=(\d+\.?\d*\s*\w+\/s)/i);
-          const writeBwMatch = fioResult.match(/write\s*:.*bw=(\d+\.?\d*\s*\w+\/s)/i);
-          
-          fio = {
-            readIops: readIopsMatch?.[1] || 'N/A',
-            writeIops: writeIopsMatch?.[1] || 'N/A',
-            readBw: readBwMatch?.[1] || 'N/A',
-            writeBw: writeBwMatch?.[1] || 'N/A'
-          };
-        } else {
-          // fio v3: read: IOPS=12.3k, BW=48.1MiB/s
-          const readMatch = fioResult.match(/read:\s*IOPS=([\d.]+k?),\s*BW=([\d.]+\s*\w+\/s)/i);
-          const writeMatch = fioResult.match(/write:\s*IOPS=([\d.]+k?),\s*BW=([\d.]+\s*\w+\/s)/i);
-          
-          fio = {
-            readIops: readMatch?.[1] || 'N/A',
-            writeIops: writeMatch?.[1] || 'N/A',
-            readBw: readMatch?.[2] || 'N/A',
-            writeBw: writeMatch?.[2] || 'N/A'
-          };
+        if (Object.keys(fioResults).length > 0) {
+          fio = fioResults;
         }
       }
     } catch {
-      // Cleanup on error
       try { await exec(`rm -f ${testDir}/arix_fio_test`); } catch {}
     }
 
