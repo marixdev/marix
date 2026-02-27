@@ -132,6 +132,7 @@ export interface NetworkBenchmark {
   }>;
   provider?: string;
   publicIp?: string;
+  location?: string;
 }
 
 export interface BenchmarkResult {
@@ -1048,20 +1049,45 @@ print(f'{read_gbs:.2f} {write_gbs:.2f} {copy_gbs:.2f} {lat_ns:.1f}')
     const tests: NetworkBenchmark['tests'] = [];
     let provider: string | undefined;
     let publicIp: string | undefined;
+    let location: string | undefined;
 
     onProgress?.({ phase: 'network', message: 'Getting public IP...', percent: 72 });
     
     // Get public IP and provider
     try {
-      publicIp = (await exec('curl -s -4 ifconfig.me 2>/dev/null || curl -s -4 icanhazip.com 2>/dev/null')).trim();
+      publicIp = (await exec('curl -s -4 -m 5 ifconfig.me 2>/dev/null || curl -s -4 -m 5 icanhazip.com 2>/dev/null')).trim();
     } catch {}
 
-    // Try to detect provider from IP info
-    try {
-      const ipInfo = await exec(`curl -s "http://ip-api.com/json/${publicIp}" 2>/dev/null`);
-      const info = JSON.parse(ipInfo);
-      provider = info.org || info.isp || undefined;
-    } catch {}
+    // Try to detect provider and location via benix API (IP2Location)
+    if (publicIp) {
+      try {
+        const ipInfo = await exec(`curl -s -m 5 "https://api.benix.app/api/ip/${publicIp}" 2>/dev/null`);
+        const info = JSON.parse(ipInfo);
+        if (info && info.location) {
+          location = info.location;
+          provider = info.provider || undefined;
+          console.log('[Benchmark] benix IP lookup:', JSON.stringify(info));
+        }
+      } catch (e) {
+        console.log('[Benchmark] benix IP lookup failed:', e);
+      }
+    }
+
+    // Fallback: try ip-api.com if benix API failed
+    if (!location && publicIp) {
+      try {
+        const ipInfo = await exec(`curl -s -m 5 "http://ip-api.com/json/${publicIp}?fields=status,country,regionName,city,isp,org" 2>/dev/null`);
+        const info = JSON.parse(ipInfo);
+        if (!provider) provider = info.org || info.isp || undefined;
+        const locParts = [info.city, info.regionName, info.country].filter(Boolean);
+        if (locParts.length > 0) {
+          location = locParts.join(', ');
+        }
+        console.log('[Benchmark] ip-api.com fallback:', location);
+      } catch (e) {
+        console.log('[Benchmark] ip-api.com failed:', e);
+      }
+    }
 
     onProgress?.({ phase: 'network', message: 'Loading speedtest servers...', percent: 75 });
     
@@ -1366,7 +1392,7 @@ print(f'{read_gbs:.2f} {write_gbs:.2f} {copy_gbs:.2f} {lat_ns:.1f}')
       BenchmarkService.saveCache(BenchmarkService.serverCache);
     }
 
-    return { tests, provider, publicIp };
+    return { tests, provider, publicIp, location };
   }
 
   /**

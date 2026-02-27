@@ -111,6 +111,7 @@ interface NetworkBenchmark {
   }>;
   provider?: string;
   publicIp?: string;
+  location?: string;
 }
 
 interface BenchmarkResult {
@@ -318,6 +319,9 @@ const BenchmarkModal: React.FC<Props> = ({
       }
       if (res.networkBenchmark.provider) {
         lines.push(`  Provider  : ${res.networkBenchmark.provider}`);
+      }
+      if (res.networkBenchmark.location) {
+        lines.push(`  Location  : ${res.networkBenchmark.location}`);
       }
       lines.push('');
       lines.push(`  ${'Server'.padEnd(25)} ${'Location'.padEnd(25)} ${'Down'.padEnd(12)} ${'Up'.padEnd(12)} Latency`);
@@ -668,6 +672,7 @@ const BenchmarkModal: React.FC<Props> = ({
                 <div class="network-info">
                     ${res.networkBenchmark.publicIp ? `<div class="network-info-item"><span class="label">IP:</span><span class="value">${res.networkBenchmark.publicIp}</span></div>` : ''}
                     ${res.networkBenchmark.provider ? `<div class="network-info-item"><span class="label">Provider:</span><span class="value">${res.networkBenchmark.provider}</span></div>` : ''}
+                    ${res.networkBenchmark.location ? `<div class="network-info-item"><span class="label">Location:</span><span class="value">${res.networkBenchmark.location}</span></div>` : ''}
                 </div>
                 <table class="network-table">
                     <thead>
@@ -789,7 +794,7 @@ const BenchmarkModal: React.FC<Props> = ({
           network: res.networkBenchmark ? {
             publicIp: maskIp(res.networkBenchmark.publicIp || ''),
             provider: res.networkBenchmark.provider || '',
-            location: '',
+            location: res.networkBenchmark.location || '',
             tests: res.networkBenchmark.tests.map(t => ({
               server: t.server,
               location: t.location,
